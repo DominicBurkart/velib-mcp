@@ -1,0 +1,33 @@
+{
+  "project_name": "velib-mcp",
+  "current_phase": "Phase 0 - Configuration",
+  "last_updated": "2025-06-14",
+  "repository": "https://github.com/dominicburkart/velib-mcp",
+  "main_branch": "main",
+  "active_worktrees": [],
+  "completed_phases": [],
+  "current_tasks": {
+    "in_progress": [
+      "Set up documentation structure",
+      "Configure pre-commit hooks",
+      "Create GitHub Actions workflow",
+      "Initialize Claude context system"
+    ],
+    "completed": [
+      "Initialize Rust project",
+      "Configure git repository"
+    ]
+  },
+  "critical_decisions": [],
+  "technical_stack": {
+    "language": "Rust",
+    "deployment": "Scaleway Container Serverless",
+    "ci_cd": "GitHub Actions",
+    "container": "Podman with Debian distroless",
+    "development_approach": "TDD"
+  },
+  "data_sources": [
+    "https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/",
+    "https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/"
+  ]
+}

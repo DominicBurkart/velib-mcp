@@ -1,0 +1,24 @@
+[package]
+name = "velib-mcp"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dominicburkart/velib-mcp"
+description = "MCP server for Velib Paris bike sharing data"
+keywords = ["mcp", "velib", "paris", "bike-sharing", "transport"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+anyhow = "1.0"
+
+[dev-dependencies]
+cargo-husky = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
