@@ -405,7 +405,7 @@ impl McpToolHandler {
             confidence += (dropoff_rt.available_docks as f64 / 10.0).min(0.2);
         }
 
-        confidence.max(0.0).min(1.0)
+        confidence.clamp(0.0, 1.0)
     }
 }
 

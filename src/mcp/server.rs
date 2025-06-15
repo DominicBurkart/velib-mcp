@@ -5,7 +5,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use futures_util::SinkExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,6 +22,7 @@ pub struct McpServer {
 
 #[derive(Debug)]
 struct WebSocketClient {
+    #[allow(dead_code)]
     id: String,
     // Additional client metadata can be added here
 }
