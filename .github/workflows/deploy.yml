@@ -62,7 +62,8 @@ jobs:
       run: |
         # Install Scaleway CLI
         curl -o /tmp/scw -L "https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli_linux_amd64"
-        sudo install /tmp/scw /usr/local/bin/scw
+        chmod +x /tmp/scw
+        sudo mv /tmp/scw /usr/local/bin/scw
         
         # Deploy to Scaleway Serverless Containers - Test deployment
         CONTAINER_NAME="velib-mcp"
