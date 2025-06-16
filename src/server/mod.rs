@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use tracing::info;
 
+use crate::mcp::McpServer;
+
 pub struct Server {
     addr: SocketAddr,
 }
@@ -17,7 +19,11 @@ impl Server {
     }
 
     pub fn router(&self) -> Router {
-        Router::new().route("/health", get(health_check))
+        let mcp_server = McpServer::new();
+
+        Router::new()
+            .route("/health", get(health_check))
+            .merge(mcp_server.router())
     }
 
     pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
