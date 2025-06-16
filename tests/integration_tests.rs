@@ -1,15 +1,15 @@
 use std::env;
-use std::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio::time::timeout;
 use velib_mcp::server::{parse_server_address, Server};
 
 // Use a mutex to ensure integration tests don't interfere with each other
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
+static ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
 #[tokio::test]
 async fn test_server_configuration_from_env() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
 
     // Test 1: Default configuration
     env::remove_var("IP");
@@ -37,7 +37,7 @@ async fn test_server_configuration_from_env() {
 
 #[tokio::test]
 async fn test_server_starts_and_shuts_down() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
 
     // Use a high port to avoid conflicts
     env::set_var("IP", "127.0.0.1");
@@ -71,7 +71,7 @@ async fn test_server_starts_and_shuts_down() {
 
 #[tokio::test]
 async fn test_invalid_configurations() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
 
     // Test invalid IP
     env::set_var("IP", "not.an.ip.address");
@@ -97,7 +97,7 @@ async fn test_invalid_configurations() {
 // a placeholder for when we implement that functionality.
 #[tokio::test]
 async fn test_server_router_creation() {
-    let _guard = ENV_MUTEX.lock().unwrap();
+    let _guard = ENV_MUTEX.lock().await;
 
     // Test that we can create a server and its router without errors
     env::set_var("IP", "127.0.0.1");
