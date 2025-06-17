@@ -9,6 +9,12 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
+// Paris City Hall coordinates - reference point for service area validation
+const PARIS_CITY_HALL: Coordinates = Coordinates {
+    latitude: 48.8565,
+    longitude: 2.3514,
+};
+
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
 }
@@ -63,8 +69,7 @@ impl McpToolHandler {
 
         // Enforce 50km distance limit from Paris City Hall
         if !query_point.is_within_paris_service_area() {
-            let city_hall = Coordinates::new(48.8565, 2.3514);
-            let distance_km = query_point.distance_to(&city_hall) / 1000.0;
+            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
             return Err(Error::OutsideServiceArea { distance_km });
         }
 
@@ -277,14 +282,12 @@ impl McpToolHandler {
 
         // Enforce 50km distance limit from Paris City Hall for both origin and destination
         if !input.origin.is_within_paris_service_area() {
-            let city_hall = Coordinates::new(48.8565, 2.3514);
-            let distance_km = input.origin.distance_to(&city_hall) / 1000.0;
+            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
             return Err(Error::OutsideServiceArea { distance_km });
         }
 
         if !input.destination.is_within_paris_service_area() {
-            let city_hall = Coordinates::new(48.8565, 2.3514);
-            let distance_km = input.destination.distance_to(&city_hall) / 1000.0;
+            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
             return Err(Error::OutsideServiceArea { distance_km });
         }
 

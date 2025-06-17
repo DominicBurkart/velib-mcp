@@ -75,7 +75,7 @@ impl VelibDataClient {
             }
 
             let json: Value = response.json().await?;
-            let records = json["results"]
+            let records = json["records"]
                 .as_array()
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
@@ -140,7 +140,7 @@ impl VelibDataClient {
             }
 
             let json: Value = response.json().await?;
-            let records = json["results"]
+            let records = json["records"]
                 .as_array()
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
