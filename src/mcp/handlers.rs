@@ -370,7 +370,7 @@ impl McpToolHandler {
                 dropoff_station: best_dropoff.station.clone(),
                 walk_to_pickup: best_pickup.distance_meters,
                 walk_from_dropoff: best_dropoff.distance_meters,
-                confidence_score: confidence_score.max(0.1).min(1.0),
+                confidence_score: confidence_score.clamp(0.1, 1.0),
             });
         }
 
