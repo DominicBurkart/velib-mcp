@@ -55,6 +55,13 @@ impl McpToolHandler {
             });
         }
 
+        // Enforce 50km distance limit from Paris City Hall
+        if !query_point.is_within_paris_service_area() {
+            let city_hall = Coordinates::new(48.8565, 2.3514);
+            let distance_km = query_point.distance_to(&city_hall) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
+        }
+
         // Generate placeholder stations for demonstration
         let stations = self.generate_placeholder_stations(&query_point, input.limit as usize);
 
@@ -160,6 +167,19 @@ impl McpToolHandler {
                 latitude: input.destination.latitude,
                 longitude: input.destination.longitude,
             });
+        }
+
+        // Enforce 50km distance limit from Paris City Hall for both origin and destination
+        if !input.origin.is_within_paris_service_area() {
+            let city_hall = Coordinates::new(48.8565, 2.3514);
+            let distance_km = input.origin.distance_to(&city_hall) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
+        }
+
+        if !input.destination.is_within_paris_service_area() {
+            let city_hall = Coordinates::new(48.8565, 2.3514);
+            let distance_km = input.destination.distance_to(&city_hall) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
         }
 
         // Generate placeholder journey recommendations

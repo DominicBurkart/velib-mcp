@@ -40,6 +40,19 @@ impl Coordinates {
             && self.longitude >= 2.0
             && self.longitude <= 2.6
     }
+
+    /// Check if coordinates are within 50km of Paris City Hall (Hôtel de Ville)
+    /// Latitude: 48.8565° N, Longitude: 2.3514° E
+    pub fn is_within_paris_service_area(&self) -> bool {
+        const PARIS_CITY_HALL_LAT: f64 = 48.8565;
+        const PARIS_CITY_HALL_LON: f64 = 2.3514;
+        const MAX_DISTANCE_METERS: f64 = 50_000.0; // 50km
+
+        let city_hall = Coordinates::new(PARIS_CITY_HALL_LAT, PARIS_CITY_HALL_LON);
+        let distance = self.distance_to(&city_hall);
+
+        distance <= MAX_DISTANCE_METERS
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -287,6 +300,30 @@ mod tests {
 
         assert!(valid_paris.is_valid_paris_metro());
         assert!(!invalid_coords.is_valid_paris_metro());
+    }
+
+    #[test]
+    fn test_paris_service_area_validation() {
+        // Paris City Hall
+        let city_hall = Coordinates::new(48.8565, 2.3514);
+        assert!(city_hall.is_within_paris_service_area());
+
+        // Paris center (should be within 50km)
+        let paris_center = Coordinates::new(48.8566, 2.3522);
+        assert!(paris_center.is_within_paris_service_area());
+
+        // London (should be outside 50km)
+        let london = Coordinates::new(51.5074, -0.1278);
+        assert!(!london.is_within_paris_service_area());
+
+        // Test edge case: exactly at the boundary
+        // Calculate a point approximately 50km away
+        let far_point = Coordinates::new(49.2, 2.3514); // ~38km north
+        assert!(far_point.is_within_paris_service_area());
+
+        // Point definitely outside 50km
+        let very_far_point = Coordinates::new(50.0, 2.3514); // ~130km north
+        assert!(!very_far_point.is_within_paris_service_area());
     }
 
     #[test]
