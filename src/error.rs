@@ -15,7 +15,6 @@ pub enum Error {
 
     #[error("Coordinates outside service area: {distance_km:.1}km from Paris (max: 50km)")]
     OutsideServiceArea { distance_km: f64 },
-
     #[error("Search radius too large: {radius}m (max: {max}m)")]
     SearchRadiusTooLarge { radius: u32, max: u32 },
 

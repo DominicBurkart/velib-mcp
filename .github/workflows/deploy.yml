@@ -19,37 +19,57 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    - name: Install Podman
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y podman=3.4.7+ds1-1ubuntu1
 
     - name: Log in to Scaleway Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: nologin
-        password: ${{ secrets.SCW_SECRET_KEY }}
+      run: |
+        echo "${{ secrets.SCW_SECRET_KEY }}" | podman login --username nologin --password-stdin ${{ env.REGISTRY }}
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha
-          type=raw,value=latest,enable={{is_default_branch}}
+    - name: Generate image tags and labels
+      id: generate_tags
+      run: |
+        REGISTRY="${{ env.REGISTRY }}"
+        NAMESPACE="${{ env.NAMESPACE }}"
+        IMAGE_NAME="${{ env.IMAGE_NAME }}"
+        BRANCH_NAME="${{ github.ref_name }}"
+        SHA="${{ github.sha }}"
+        
+        # Generate tags with namespace
+        TAGS=""
+        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${BRANCH_NAME},"
+        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${SHA},"
+        
+        # Add latest tag for main branch
+        if [ "${{ github.ref_name }}" = "main" ]; then
+          TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:latest,"
+        fi
+        
+        # Remove trailing comma
+        TAGS=$(echo "$TAGS" | sed 's/,$//')
+        
+        echo "tags=$TAGS" >> $GITHUB_OUTPUT
+        echo "image=${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+    - name: Build and push Podman image
+      run: |
+        # Build the image with all tags
+        IFS=',' read -ra TAG_ARRAY <<< "${{ steps.generate_tags.outputs.tags }}"
+        
+        # Build with first tag
+        podman build -t "${TAG_ARRAY[0]}" -f ./Dockerfile .
+        
+        # Tag with additional tags
+        for tag in "${TAG_ARRAY[@]:1}"; do
+          podman tag "${TAG_ARRAY[0]}" "$tag"
+        done
+        
+        # Push all tags
+        for tag in "${TAG_ARRAY[@]}"; do
+          podman push "$tag"
+        done
 
     - name: Deploy to Scaleway Container
       env:
