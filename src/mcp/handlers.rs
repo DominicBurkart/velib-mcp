@@ -1,18 +1,22 @@
+use crate::data::VelibDataClient;
 use crate::mcp::types::*;
-use crate::types::{
-    BikeAvailability, BikeTypeFilter, Coordinates, DataFreshness, RealTimeStatus,
-    ServiceCapabilities, StationReference, StationStatus, VelibStation,
-};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use crate::{Error, Result};
-use chrono::Utc;
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
+// Paris City Hall coordinates - reference point for service area validation
+const PARIS_CITY_HALL: Coordinates = Coordinates {
+    latitude: 48.8565,
+    longitude: 2.3514,
+};
+
 pub struct McpToolHandler {
-    // In Phase 2B, we use placeholder data
-    // In Phase 3, this will be replaced with a real data client
+    data_client: Arc<RwLock<VelibDataClient>>,
 }
 
 impl Default for McpToolHandler {
@@ -23,7 +27,15 @@ impl Default for McpToolHandler {
 
 impl McpToolHandler {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            data_client: Arc::new(RwLock::new(VelibDataClient::new())),
+        }
+    }
+
+    pub fn with_data_client(data_client: VelibDataClient) -> Self {
+        Self {
+            data_client: Arc::new(RwLock::new(data_client)),
+        }
     }
 
     pub async fn find_nearby_stations(
@@ -55,8 +67,54 @@ impl McpToolHandler {
             });
         }
 
-        // Generate placeholder stations for demonstration
-        let stations = self.generate_placeholder_stations(&query_point, input.limit as usize);
+        // Enforce 50km distance limit from Paris City Hall
+        if !query_point.is_within_paris_service_area() {
+            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
+        }
+
+        // Fetch live station data
+        let mut data_client = self.data_client.write().await;
+        let all_stations = data_client.get_all_stations(true).await?;
+
+        // Filter stations by distance and bike type
+        let mut nearby_stations: Vec<StationWithDistance> = all_stations
+            .into_iter()
+            .filter_map(|station| {
+                let distance = query_point.distance_to(&station.reference.coordinates) as u32;
+
+                // Check if within search radius
+                if distance <= input.radius_meters {
+                    // Check if station has the requested bike type (if specified)
+                    let has_requested_bikes = match &input.availability_filter {
+                        Some(filter) => match &filter.bike_type {
+                            Some(bike_type) => station.has_available_bikes(bike_type),
+                            None => true,
+                        },
+                        None => true, // No filter specified
+                    };
+
+                    if has_requested_bikes && station.is_operational() {
+                        Some(StationWithDistance {
+                            station,
+                            distance_meters: distance,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by distance
+        nearby_stations.sort_by_key(|s| s.distance_meters);
+
+        // Limit results
+        nearby_stations.truncate(input.limit as usize);
+
+        let stations = nearby_stations;
 
         let search_time = start_time.elapsed().as_millis() as u64;
 
@@ -75,12 +133,10 @@ impl McpToolHandler {
         &self,
         input: GetStationByCodeInput,
     ) -> Result<GetStationByCodeOutput> {
-        // Placeholder implementation - returns a demo station for valid codes
-        let station = if input.station_code.starts_with("demo") {
-            Some(self.create_demo_station(&input.station_code))
-        } else {
-            None
-        };
+        let mut data_client = self.data_client.write().await;
+        let station = data_client
+            .get_station_by_code(&input.station_code, true)
+            .await?;
 
         Ok(GetStationByCodeOutput {
             found: station.is_some(),
@@ -105,8 +161,32 @@ impl McpToolHandler {
             });
         }
 
-        // Generate placeholder search results
-        let stations = self.generate_search_results(&input.query, input.limit as usize);
+        // Fetch live station data and search by name
+        let mut data_client = self.data_client.write().await;
+        let all_stations = data_client.get_all_stations(true).await?;
+
+        let query_lower = input.query.to_lowercase();
+        let mut matching_stations: Vec<VelibStation> = all_stations
+            .into_iter()
+            .filter(|station| {
+                let name_lower = station.reference.name.to_lowercase();
+                if input.fuzzy {
+                    // Simple fuzzy matching - contains substring
+                    name_lower.contains(&query_lower)
+                } else {
+                    // Exact matching - starts with query
+                    name_lower.starts_with(&query_lower)
+                }
+            })
+            .collect();
+
+        // Sort by name for consistent results
+        matching_stations.sort_by(|a, b| a.reference.name.cmp(&b.reference.name));
+
+        // Limit results
+        matching_stations.truncate(input.limit as usize);
+
+        let stations = matching_stations;
         let search_time = start_time.elapsed().as_millis() as u64;
 
         Ok(SearchStationsByNameOutput {
@@ -124,18 +204,56 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        // Generate placeholder area statistics
+        // Fetch live station data
+        let mut data_client = self.data_client.write().await;
+        let all_stations = data_client.get_all_stations(true).await?;
+
+        // Filter stations within the specified bounds
+        let area_stations: Vec<&VelibStation> = all_stations
+            .iter()
+            .filter(|station| input.bounds.contains(&station.reference.coordinates))
+            .collect();
+
+        // Calculate area statistics from live data
+        let total_stations = area_stations.len() as u32;
+        let operational_stations = area_stations
+            .iter()
+            .filter(|station| station.is_operational())
+            .count() as u32;
+
+        let mut total_capacity = 0u32;
+        let mut total_mechanical = 0u32;
+        let mut total_electric = 0u32;
+        let mut total_available_docks = 0u32;
+
+        for station in &area_stations {
+            total_capacity += station.reference.capacity as u32;
+
+            if let Some(rt) = &station.real_time {
+                total_mechanical += rt.bikes.mechanical as u32;
+                total_electric += rt.bikes.electric as u32;
+                total_available_docks += rt.available_docks as u32;
+            }
+        }
+
+        let total_bikes = total_mechanical + total_electric;
+        let occupancy_rate = if total_capacity > 0 {
+            total_bikes as f64 / total_capacity as f64
+        } else {
+            0.0
+        };
+
         let stats = AreaStatistics {
-            total_stations: 25,
-            operational_stations: 23,
-            total_capacity: 500,
+            total_stations,
+            operational_stations,
+            total_capacity,
             available_bikes: AvailableBikesStats {
-                mechanical: 120,
-                electric: 85,
-                total: 205,
+                mechanical: total_mechanical,
+                electric: total_electric,
+                total: total_bikes,
             },
-            available_docks: 295,
-            occupancy_rate: 0.41, // 205/500
+            available_docks: total_available_docks,
+            occupancy_rate,
         };
 
         Ok(GetAreaStatisticsOutput {
@@ -162,17 +280,99 @@ impl McpToolHandler {
             });
         }
 
-        // Generate placeholder journey recommendations
-        let pickup_stations = self.generate_placeholder_stations(&input.origin, 3);
-        let dropoff_stations = self.generate_placeholder_stations(&input.destination, 3);
+        // Enforce 50km distance limit from Paris City Hall for both origin and destination
+        if !input.origin.is_within_paris_service_area() {
+            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
+        }
 
-        let recommendations = vec![JourneyRecommendation {
-            pickup_station: pickup_stations[0].station.clone(),
-            dropoff_station: dropoff_stations[0].station.clone(),
-            walk_to_pickup: pickup_stations[0].distance_meters,
-            walk_from_dropoff: dropoff_stations[0].distance_meters,
-            confidence_score: 0.85,
-        }];
+        if !input.destination.is_within_paris_service_area() {
+            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
+            return Err(Error::OutsideServiceArea { distance_km });
+        }
+
+        // Find nearby stations for pickup and dropoff using live data
+        let mut data_client = self.data_client.write().await;
+        let all_stations = data_client.get_all_stations(true).await?;
+
+        // Get preferences or use defaults
+        let preferences = input.preferences.unwrap_or_default();
+
+        // Find pickup stations near origin
+        let mut pickup_candidates: Vec<StationWithDistance> = all_stations
+            .iter()
+            .filter_map(|station| {
+                let distance = input.origin.distance_to(&station.reference.coordinates) as u32;
+
+                if distance <= preferences.max_walk_distance
+                    && station.is_operational()
+                    && station.has_available_bikes(&preferences.bike_type)
+                {
+                    Some(StationWithDistance {
+                        station: station.clone(),
+                        distance_meters: distance,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        pickup_candidates.sort_by_key(|s| s.distance_meters);
+        pickup_candidates.truncate(3);
+
+        // Find dropoff stations near destination
+        let mut dropoff_candidates: Vec<StationWithDistance> = all_stations
+            .iter()
+            .filter_map(|station| {
+                let distance = input
+                    .destination
+                    .distance_to(&station.reference.coordinates)
+                    as u32;
+
+                if distance <= preferences.max_walk_distance
+                    && station.is_operational()
+                    && station.has_available_docks(1)
+                // At least 1 dock available
+                {
+                    Some(StationWithDistance {
+                        station: station.clone(),
+                        distance_meters: distance,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        dropoff_candidates.sort_by_key(|s| s.distance_meters);
+        dropoff_candidates.truncate(3);
+
+        let pickup_stations = pickup_candidates;
+        let dropoff_stations = dropoff_candidates;
+
+        // Generate journey recommendations
+        let mut recommendations = Vec::new();
+
+        if !pickup_stations.is_empty() && !dropoff_stations.is_empty() {
+            // Create recommendations by pairing closest pickup with closest dropoff
+            let best_pickup = &pickup_stations[0];
+            let best_dropoff = &dropoff_stations[0];
+
+            // Calculate confidence score based on walking distances
+            let max_walk = preferences.max_walk_distance as f64;
+            let pickup_walk_ratio = best_pickup.distance_meters as f64 / max_walk;
+            let dropoff_walk_ratio = best_dropoff.distance_meters as f64 / max_walk;
+            let confidence_score = 1.0 - ((pickup_walk_ratio + dropoff_walk_ratio) / 2.0) * 0.5;
+
+            recommendations.push(JourneyRecommendation {
+                pickup_station: best_pickup.station.clone(),
+                dropoff_station: best_dropoff.station.clone(),
+                walk_to_pickup: best_pickup.distance_meters,
+                walk_from_dropoff: best_dropoff.distance_meters,
+                confidence_score: confidence_score.clamp(0.1, 1.0),
+            });
+        }
 
         Ok(PlanBikeJourneyOutput {
             journey: BikeJourney {
@@ -183,96 +383,16 @@ impl McpToolHandler {
         })
     }
 
-    // Helper methods for generating placeholder data
-    fn generate_placeholder_stations(
-        &self,
-        center: &Coordinates,
-        count: usize,
-    ) -> Vec<StationWithDistance> {
-        (0..count)
-            .map(|i| {
-                let offset_lat = (i as f64) * 0.001;
-                let offset_lon = (i as f64) * 0.001;
-
-                let station_coords =
-                    Coordinates::new(center.latitude + offset_lat, center.longitude + offset_lon);
-
-                let distance = center.distance_to(&station_coords) as u32;
-
-                StationWithDistance {
-                    station: VelibStation {
-                        reference: StationReference {
-                            station_code: format!("demo_{:03}", i + 1),
-                            name: format!("Demo Station {}", i + 1),
-                            coordinates: station_coords,
-                            capacity: 20,
-                            capabilities: ServiceCapabilities::default(),
-                        },
-                        real_time: Some(RealTimeStatus {
-                            bikes: BikeAvailability::new(((i + 1) * 2) as u16, (i + 1) as u16),
-                            available_docks: (20 - (i + 1) * 3) as u16,
-                            status: StationStatus::Open,
-                            last_update: Utc::now(),
-                            data_freshness: DataFreshness::Fresh,
-                        }),
-                    },
-                    distance_meters: distance,
-                }
-            })
-            .collect()
+    /// Clean up expired cache entries in the data client
+    pub async fn cleanup_cache(&self) {
+        let data_client = self.data_client.read().await;
+        data_client.cleanup_cache().await;
     }
 
-    fn create_demo_station(&self, code: &str) -> VelibStation {
-        VelibStation {
-            reference: StationReference {
-                station_code: code.to_string(),
-                name: format!("Demo Station for {}", code),
-                coordinates: Coordinates::new(48.8566, 2.3522), // Paris center
-                capacity: 25,
-                capabilities: ServiceCapabilities::default(),
-            },
-            real_time: Some(RealTimeStatus {
-                bikes: BikeAvailability::new(8, 5),
-                available_docks: 12,
-                status: StationStatus::Open,
-                last_update: Utc::now(),
-                data_freshness: DataFreshness::Fresh,
-            }),
-        }
-    }
-
-    fn generate_search_results(&self, query: &str, limit: usize) -> Vec<VelibStation> {
-        // Generate a few demo stations that "match" the query
-        let demo_names = vec![
-            format!("{} Metro Station", query),
-            format!("{} Place", query),
-            format!("Station {}", query),
-        ];
-
-        demo_names
-            .into_iter()
-            .take(limit)
-            .enumerate()
-            .map(|(i, name)| VelibStation {
-                reference: StationReference {
-                    station_code: format!("search_{:03}", i + 1),
-                    name,
-                    coordinates: Coordinates::new(
-                        48.8566 + (i as f64) * 0.001,
-                        2.3522 + (i as f64) * 0.001,
-                    ),
-                    capacity: 20,
-                    capabilities: ServiceCapabilities::default(),
-                },
-                real_time: Some(RealTimeStatus {
-                    bikes: BikeAvailability::new(5, 3),
-                    available_docks: 12,
-                    status: StationStatus::Open,
-                    last_update: Utc::now(),
-                    data_freshness: DataFreshness::Fresh,
-                }),
-            })
-            .collect()
+    /// Get cache statistics from the data client
+    pub async fn cache_stats(&self) -> (usize, usize) {
+        let data_client = self.data_client.read().await;
+        data_client.cache_stats().await
     }
 }
 

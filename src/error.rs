@@ -13,6 +13,8 @@ pub enum Error {
     #[error("Invalid coordinates: latitude {latitude}, longitude {longitude}")]
     InvalidCoordinates { latitude: f64, longitude: f64 },
 
+    #[error("Coordinates outside service area: {distance_km:.1}km from Paris (max: 50km)")]
+    OutsideServiceArea { distance_km: f64 },
     #[error("Search radius too large: {radius}m (max: {max}m)")]
     SearchRadiusTooLarge { radius: u32, max: u32 },
 
@@ -42,6 +44,7 @@ impl Error {
             Error::Http(_) => -32001,
             Error::Json(_) => -32700,                     // Parse error
             Error::InvalidCoordinates { .. } => -32602,   // Invalid params
+            Error::OutsideServiceArea { .. } => -32602,   // Invalid params
             Error::SearchRadiusTooLarge { .. } => -32602, // Invalid params
             Error::ResultLimitExceeded { .. } => -32602,  // Invalid params
             Error::StationNotFound { .. } => -32600,      // Invalid request
@@ -58,6 +61,7 @@ impl Error {
             Error::Http(_) => "http_error",
             Error::Json(_) => "json_error",
             Error::InvalidCoordinates { .. } => "invalid_coordinates",
+            Error::OutsideServiceArea { .. } => "outside_service_area",
             Error::SearchRadiusTooLarge { .. } => "search_radius_too_large",
             Error::ResultLimitExceeded { .. } => "result_limit_exceeded",
             Error::StationNotFound { .. } => "station_not_found",
