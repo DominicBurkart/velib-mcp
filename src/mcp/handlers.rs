@@ -394,6 +394,32 @@ impl McpToolHandler {
         let data_client = self.data_client.read().await;
         data_client.cache_stats().await
     }
+
+    /// Get reference stations for resource endpoints
+    pub async fn get_reference_stations(&self) -> Result<Vec<crate::types::StationReference>> {
+        let mut data_client = self.data_client.write().await;
+        data_client.fetch_reference_stations().await
+    }
+
+    /// Get real-time status for resource endpoints
+    pub async fn get_realtime_status(&self) -> Result<std::collections::HashMap<String, crate::types::RealTimeStatus>> {
+        let mut data_client = self.data_client.write().await;
+        data_client.fetch_realtime_status().await
+    }
+
+    /// Get complete stations data for resource endpoints
+    pub async fn get_complete_stations(&self, include_realtime: bool) -> Result<Vec<crate::types::VelibStation>> {
+        let mut data_client = self.data_client.write().await;
+        data_client.get_all_stations(include_realtime).await
+    }
+
+    /// Test connectivity to data sources for health checks
+    pub async fn test_connectivity(&self) -> Result<()> {
+        let mut data_client = self.data_client.write().await;
+        // Simple connectivity test by fetching reference data
+        data_client.get_all_stations(false).await?;
+        Ok(())
+    }
 }
 
 impl Default for JourneyPreferences {
