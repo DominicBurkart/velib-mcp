@@ -11,7 +11,7 @@ Date de dernière mise à jour: 2025-06-14
 - ✅ Structure de documentation créée (/docs)
 - ✅ Configuration des hooks pre-commit (fmt, clippy, audit)
 - ✅ Workflow CI/CD GitHub Actions configuré
-- ✅ Dockerfile créé pour déploiement Scaleway (compatible Podman)
+- ✅ Dockerfile créé pour déploiement Scaleway
 - ✅ Système de suivi de contexte Claude initialisé
 - ✅ Documentation projet et README créés
 

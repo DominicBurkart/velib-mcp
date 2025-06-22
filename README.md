@@ -38,14 +38,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo audit
 ```
 
-### Podman
+### Docker
 
 ```bash
 # Build container image
-podman build -t velib-mcp .
+docker build -t velib-mcp .
 
 # Run container
-podman run -p 8080:8080 velib-mcp
+docker run -p 8080:8080 velib-mcp
 ```
 
 ## Deployment

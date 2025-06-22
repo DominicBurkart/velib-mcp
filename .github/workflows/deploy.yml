@@ -19,10 +19,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Podman
+    - name: Install and configure Podman
       run: |
+        # Update package lists
         sudo apt-get update
-        sudo apt-get install -y podman=3.4.7+ds1-1ubuntu1
+        
+        # Install Podman from Ubuntu repositories (more reliable than pinning specific versions)
+        sudo apt-get install -y podman
+        
+        # Configure Podman for rootless operation
+        sudo sysctl kernel.unprivileged_userns_clone=1
+        
+        # Verify Podman installation
+        podman --version
+        podman info
 
     - name: Log in to Scaleway Container Registry
       run: |
@@ -37,9 +47,12 @@ jobs:
         BRANCH_NAME="${{ github.ref_name }}"
         SHA="${{ github.sha }}"
         
+        # Sanitize branch name for use in container tags (replace / with -)
+        SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
+        
         # Generate tags with namespace
         TAGS=""
-        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${BRANCH_NAME},"
+        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${SAFE_BRANCH_NAME},"
         TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${SHA},"
         
         # Add latest tag for main branch

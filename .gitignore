@@ -25,7 +25,3 @@ logs/
 
 # Cache
 .cache/
-
-# Worktrees
-*-worktree/
-phase*-*/
