@@ -25,3 +25,4 @@ logs/
 
 # Cache
 .cache/
+*worktree/
