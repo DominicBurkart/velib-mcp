@@ -9,27 +9,30 @@
 ## Manual Steps Required
 
 ### Phase 2: Directory Restructure
-The following steps need to be executed manually from `/home/dominic/code/`:
+The following steps need to be executed manually after setting the `PROJECT_ROOT` variable:
 
 ```bash
+# Define the project root directory (adjust path as needed)
+PROJECT_ROOT="/home/dominic/code"  # or your preferred project root
+
 # 1. Create new parent directory structure
-mkdir -p /home/dominic/code/velib-mcp-new
+mkdir -p "${PROJECT_ROOT}/velib-mcp-new"
 
 # 2. Move existing repository to subdirectory
-mv /home/dominic/code/velib-mcp /home/dominic/code/velib-mcp-new/velib-mcp
+mv "${PROJECT_ROOT}/velib-mcp" "${PROJECT_ROOT}/velib-mcp-new/velib-mcp"
 
 # 3. Update the parent directory name
-mv /home/dominic/code/velib-mcp-new /home/dominic/code/velib-mcp
+mv "${PROJECT_ROOT}/velib-mcp-new" "${PROJECT_ROOT}/velib-mcp"
 
 # 4. Clean up and recreate worktrees
-cd /home/dominic/code/velib-mcp/velib-mcp
+cd "${PROJECT_ROOT}/velib-mcp/velib-mcp"
 git worktree prune
 ```
 
 ### Phase 3: Verify New Structure
 After restructure, the directory layout should be:
 ```
-~/code/velib-mcp/
+${PROJECT_ROOT}/velib-mcp/
 ├── velib-mcp/              # Main repository (relocated)
 │   ├── CLAUDE.md           # Configuration Claude partagée
 │   ├── src/                # Code source
@@ -42,7 +45,7 @@ After restructure, the directory layout should be:
 
 ### Phase 4: Test Worktree Creation
 ```bash
-cd /home/dominic/code/velib-mcp/velib-mcp
+cd "${PROJECT_ROOT}/velib-mcp/velib-mcp"
 
 # Create test worktree in adjacent directory
 git worktree add ../test-branch main
