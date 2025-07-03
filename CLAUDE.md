@@ -45,6 +45,7 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 - **Phase 2B** : Fondation protocole MCP et types de base
 - **Phase 3A** : Intégration API live et client de données
 - **Phase 3B** : Handlers MCP complets avec intégration données live
+- **Phase 4** : Nettoyage structure repository (suppression worktrees committés)
 
 ### Architecture Technique
 - **Serveur MCP Rust** pour données Velib Paris
