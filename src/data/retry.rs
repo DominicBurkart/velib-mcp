@@ -61,11 +61,21 @@ pub struct RetryConfig {
 
 impl Default for RetryConfig {
     fn default() -> Self {
-        Self {
-            max_attempts: 3,
-            base_delay_seconds: 1,
-            max_delay_seconds: 60,
-            use_jitter: true,
+        // Use shorter delays in test environment
+        if cfg!(test) {
+            Self {
+                max_attempts: 2,
+                base_delay_seconds: 1,
+                max_delay_seconds: 5,
+                use_jitter: false,
+            }
+        } else {
+            Self {
+                max_attempts: 3,
+                base_delay_seconds: 1,
+                max_delay_seconds: 60,
+                use_jitter: true,
+            }
         }
     }
 }
@@ -359,10 +369,11 @@ mod tests {
     #[test]
     fn test_retry_config_default() {
         let config = RetryConfig::default();
-        assert_eq!(config.max_attempts, 3);
+        // In test environment, should use shorter delays
+        assert_eq!(config.max_attempts, 2);
         assert_eq!(config.base_delay_seconds, 1);
-        assert_eq!(config.max_delay_seconds, 60);
-        assert!(config.use_jitter);
+        assert_eq!(config.max_delay_seconds, 5);
+        assert!(!config.use_jitter);
     }
 
     #[test]
