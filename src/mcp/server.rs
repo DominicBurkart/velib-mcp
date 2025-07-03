@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,7 +46,6 @@ impl McpServer {
         let clients = Arc::clone(&self.clients);
 
         Router::new()
-            .route("/health", get(health_check))
             .route(
                 "/mcp",
                 post({
@@ -417,14 +416,6 @@ impl McpServer {
             }),
         }
     }
-}
-
-async fn health_check() -> Json<Value> {
-    Json(json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now(),
-        "service": "velib-mcp"
-    }))
 }
 
 async fn handle_resource(
