@@ -365,7 +365,7 @@ impl McpServer {
                             ]
                         }))
                     }
-                    _ => Err(Error::McpProtocol(format!("Unknown tool: {}", tool_name))),
+                    _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
             }
             "resources/list" => Ok(json!({

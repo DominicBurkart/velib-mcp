@@ -258,8 +258,7 @@ impl VelibStation {
 
             if total_bikes + total_docks > capacity {
                 return Err(format!(
-                    "Total bikes ({}) + docks ({}) exceeds capacity ({})",
-                    total_bikes, total_docks, capacity
+                    "Total bikes ({total_bikes}) + docks ({total_docks}) exceeds capacity ({capacity})"
                 ));
             }
         }
