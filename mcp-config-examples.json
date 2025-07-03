@@ -1,0 +1,63 @@
+{
+  "claude-code": {
+    "description": "Configuration for Claude Code MCP integration",
+    "file_location": "~/.config/claude-code/mcp_servers.json",
+    "config": {
+      "mcpServers": {
+        "velib": {
+          "command": "/path/to/velib-mcp/target/release/velib-mcp",
+          "env": {
+            "IP": "127.0.0.1",
+            "PORT": "8080"
+          }
+        }
+      }
+    }
+  },
+  "cursor": {
+    "description": "Configuration for Cursor AI integration",
+    "file_location": "~/.cursor/mcp_servers.json",
+    "config": {
+      "mcpServers": {
+        "velib": {
+          "command": "/path/to/velib-mcp/target/release/velib-mcp",
+          "env": {
+            "IP": "127.0.0.1",
+            "PORT": "8080"
+          }
+        }
+      }
+    }
+  },
+  "windsurf": {
+    "description": "Configuration for Windsurf integration",
+    "file_location": "~/.windsurf/mcp_servers.json",
+    "config": {
+      "mcpServers": {
+        "velib": {
+          "command": "/path/to/velib-mcp/target/release/velib-mcp",
+          "env": {
+            "IP": "127.0.0.1",
+            "PORT": "8080"
+          }
+        }
+      }
+    }
+  },
+  "chatgpt": {
+    "description": "For ChatGPT integration, use the MCP server via HTTP endpoint",
+    "config": {
+      "setup_instructions": "Start the server with: IP=127.0.0.1 PORT=8080 ./target/release/velib-mcp",
+      "endpoint": "http://localhost:8080",
+      "integration_note": "Use the HTTP endpoint to integrate with ChatGPT actions or plugins"
+    }
+  },
+  "le-chat": {
+    "description": "For Le Chat (Mistral) integration, use the MCP server via HTTP endpoint", 
+    "config": {
+      "setup_instructions": "Start the server with: IP=127.0.0.1 PORT=8080 ./target/release/velib-mcp",
+      "endpoint": "http://localhost:8080",
+      "integration_note": "Use the HTTP endpoint to integrate with Le Chat's external tool system"
+    }
+  }
+}

@@ -9,28 +9,48 @@
 
 A high-performance Model Context Protocol (MCP) server providing access to Paris Velib bike sharing data for AI assistants.
 
-## Quick Start - Install with Claude Code
+## 🚀 Quick Start with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
+Install and configure the Velib MCP server for Claude Code in one command:
 
 ```bash
-# Install and configure the server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+curl -fsSL https://raw.githubusercontent.com/dominicburkart/velib-mcp/main/install.sh | bash
 ```
 
-Then use in Claude Code:
-```
-@velib find nearby stations at latitude 48.8566 longitude 2.3522
-@velib get station by code 16107
-@velib search stations by name "châtelet"
-```
+**That's it!** 🎉 The server is now ready to use with Claude Code.
+
+### What this gives you:
+- **Real-time bike availability** at all Paris Velib stations
+- **Smart station search** by location, name, or area
+- **Journey planning** with optimal pickup/dropoff suggestions
+- **Area statistics** for bike sharing analysis
+- **Seamless Claude Code integration** with automatic configuration
 
 ## Overview
 
 This project exposes two key Parisian datasets through MCP:
 - **Real-time availability**: Current bike and dock availability at stations
 - **Station locations**: Geographic information and details about all Velib stations
+
+## 🔧 Other AI Platforms
+
+<details>
+<summary><strong>ChatGPT • Cursor • Le Chat • Windsurf</strong></summary>
+
+### Manual Installation
+```bash
+git clone https://github.com/dominicburkart/velib-mcp.git
+cd velib-mcp
+cargo build --release
+```
+
+### Platform-Specific Setup
+- **Cursor**: Add to `~/.cursor/mcp_servers.json`
+- **Windsurf**: Add to `~/.windsurf/mcp_servers.json`  
+- **ChatGPT/Le Chat**: Use HTTP endpoint `http://localhost:8080`
+
+See [mcp-config-examples.json](mcp-config-examples.json) for detailed configuration examples.
+</details>
 
 ## Data Sources
 
