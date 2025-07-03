@@ -281,10 +281,10 @@ impl RetryableHttpClient {
                     warn!(
                         "Rate limited (429) for {}{}",
                         url,
-                        retry_after.map_or_else(
-                            String::new,
-                            |seconds| format!(", retry after {}s", seconds)
-                        )
+                        retry_after.map_or_else(String::new, |seconds| format!(
+                            ", retry after {}s",
+                            seconds
+                        ))
                     );
                     return Err(create_rate_limited_error(&response));
                 }
@@ -292,9 +292,7 @@ impl RetryableHttpClient {
                 // Check for other HTTP errors
                 if !response.status().is_success() {
                     warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(
-                        response.error_for_status().unwrap_err(),
-                    ));
+                    return Err(Error::Http(response.error_for_status().unwrap_err()));
                 }
 
                 Ok(response)
@@ -321,10 +319,10 @@ impl RetryableHttpClient {
                     warn!(
                         "Rate limited (429) for {}{}",
                         url,
-                        retry_after.map_or_else(
-                            String::new,
-                            |seconds| format!(", retry after {}s", seconds)
-                        )
+                        retry_after.map_or_else(String::new, |seconds| format!(
+                            ", retry after {}s",
+                            seconds
+                        ))
                     );
                     return Err(create_rate_limited_error(&response));
                 }
@@ -332,9 +330,7 @@ impl RetryableHttpClient {
                 // Check for other HTTP errors
                 if !response.status().is_success() {
                     warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(
-                        response.error_for_status().unwrap_err(),
-                    ));
+                    return Err(Error::Http(response.error_for_status().unwrap_err()));
                 }
 
                 Ok(response)
