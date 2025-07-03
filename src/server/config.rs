@@ -9,9 +9,9 @@ pub fn parse_server_address() -> Result<SocketAddr, String> {
 
     let ip = std::env::var("IP").unwrap_or_else(|_| "0.0.0.0".to_string());
 
-    format!("{}:{}", ip, port)
+    format!("{ip}:{port}")
         .parse()
-        .map_err(|e| format!("Invalid IP or PORT environment variables: {}", e))
+        .map_err(|e| format!("Invalid IP or PORT environment variables: {e}"))
 }
 
 #[cfg(test)]

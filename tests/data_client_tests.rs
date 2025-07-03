@@ -61,7 +61,7 @@ async fn test_real_api_fetch_with_timeout() {
             }
         }
         Ok(Err(e)) => {
-            println!("Warning: API fetch failed: {}", e);
+            println!("Warning: API fetch failed: {e}");
             // Don't fail the test for network issues
         }
         Err(_) => {
@@ -90,7 +90,7 @@ async fn test_station_by_code_not_found() {
             assert!(station.is_none(), "Non-existent station should return None");
         }
         Ok(Err(e)) => {
-            println!("Warning: API fetch failed: {}", e);
+            println!("Warning: API fetch failed: {e}");
             // Don't fail for network issues
         }
         Err(_) => {
