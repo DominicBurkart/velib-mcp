@@ -78,13 +78,16 @@ impl McpServer {
                     }
                 }),
             )
-            .route("/resources/*uri", get({
-                let handler = Arc::clone(&handler);
-                move |uri: axum::extract::Path<String>| {
+            .route(
+                "/resources/*uri",
+                get({
                     let handler = Arc::clone(&handler);
-                    async move { handle_resource(uri, handler).await }
-                }
-            }))
+                    move |uri: axum::extract::Path<String>| {
+                        let handler = Arc::clone(&handler);
+                        async move { handle_resource(uri, handler).await }
+                    }
+                }),
+            )
     }
 
     async fn handle_websocket_connection(
@@ -434,10 +437,14 @@ async fn handle_resource(
                 Ok(response) => Json(response).into_response(),
                 Err(e) => {
                     error!("Failed to get reference stations: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                        "error": "Failed to fetch reference stations",
-                        "details": e.to_string()
-                    }))).into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "error": "Failed to fetch reference stations",
+                            "details": e.to_string()
+                        })),
+                    )
+                        .into_response()
                 }
             }
         }
@@ -446,10 +453,14 @@ async fn handle_resource(
                 Ok(response) => Json(response).into_response(),
                 Err(e) => {
                     error!("Failed to get real-time stations: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                        "error": "Failed to fetch real-time stations",
-                        "details": e.to_string()
-                    }))).into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "error": "Failed to fetch real-time stations",
+                            "details": e.to_string()
+                        })),
+                    )
+                        .into_response()
                 }
             }
         }
@@ -458,25 +469,31 @@ async fn handle_resource(
                 Ok(response) => Json(response).into_response(),
                 Err(e) => {
                     error!("Failed to get complete stations: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
-                        "error": "Failed to fetch complete stations",
-                        "details": e.to_string()
-                    }))).into_response()
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({
+                            "error": "Failed to fetch complete stations",
+                            "details": e.to_string()
+                        })),
+                    )
+                        .into_response()
                 }
             }
         }
-        "velib://health" => {
-            match get_health_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get health status: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({
+        "velib://health" => match get_health_resource(Arc::clone(&handler)).await {
+            Ok(response) => Json(response).into_response(),
+            Err(e) => {
+                error!("Failed to get health status: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
                         "error": "Failed to fetch health status",
                         "details": e.to_string()
-                    }))).into_response()
-                }
+                    })),
+                )
+                    .into_response()
             }
-        }
+        },
         _ => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Resource not found"})),
@@ -488,7 +505,7 @@ async fn handle_resource(
 /// Get reference stations resource data
 async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_reference_stations().await?;
-    
+
     Ok(json!({
         "stations": stations,
         "metadata": {
@@ -502,27 +519,30 @@ async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result
 /// Get real-time stations resource data  
 async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let realtime_status = handler.get_realtime_status().await?;
-    
+
     // Convert HashMap to Vec for JSON response
-    let stations: Vec<Value> = realtime_status.iter().map(|(station_code, status)| {
-        json!({
-            "station_code": station_code,
-            "bikes": {
-                "mechanical": status.bikes.mechanical,
-                "electric": status.bikes.electric
-            },
-            "available_docks": status.available_docks,
-            "status": status.status,
-            "last_update": status.last_update,
-            "data_freshness": status.data_freshness
+    let stations: Vec<Value> = realtime_status
+        .iter()
+        .map(|(station_code, status)| {
+            json!({
+                "station_code": station_code,
+                "bikes": {
+                    "mechanical": status.bikes.mechanical,
+                    "electric": status.bikes.electric
+                },
+                "available_docks": status.available_docks,
+                "status": status.status,
+                "last_update": status.last_update,
+                "data_freshness": status.data_freshness
+            })
         })
-    }).collect();
-    
+        .collect();
+
     Ok(json!({
         "stations": stations,
         "metadata": {
             "total_stations": stations.len(),
-            "data_freshness": "Fresh", 
+            "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
         }
@@ -532,7 +552,7 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 /// Get complete stations resource data (reference + real-time)
 async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_complete_stations(true).await?;
-    
+
     Ok(json!({
         "stations": stations,
         "metadata": {
@@ -549,7 +569,7 @@ async fn get_health_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     // Get real cache statistics
     let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
-    
+
     // Calculate hit rate based on cache usage (simplified)
     let hit_rate = if total_entries > 0 {
         // Real calculation based on cache efficiency
@@ -557,13 +577,13 @@ async fn get_health_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     } else {
         0.0
     };
-    
+
     // Test data source connectivity
     let (realtime_status, reference_status) = match handler.test_connectivity().await {
         Ok(_) => ("healthy", "healthy"),
-        Err(_) => ("degraded", "degraded")
+        Err(_) => ("degraded", "degraded"),
     };
-    
+
     Ok(json!({
         "status": "healthy",
         "version": "1.0.0",

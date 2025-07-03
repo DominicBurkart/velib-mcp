@@ -402,13 +402,18 @@ impl McpToolHandler {
     }
 
     /// Get real-time status for resource endpoints
-    pub async fn get_realtime_status(&self) -> Result<std::collections::HashMap<String, crate::types::RealTimeStatus>> {
+    pub async fn get_realtime_status(
+        &self,
+    ) -> Result<std::collections::HashMap<String, crate::types::RealTimeStatus>> {
         let mut data_client = self.data_client.write().await;
         data_client.fetch_realtime_status().await
     }
 
     /// Get complete stations data for resource endpoints
-    pub async fn get_complete_stations(&self, include_realtime: bool) -> Result<Vec<crate::types::VelibStation>> {
+    pub async fn get_complete_stations(
+        &self,
+        include_realtime: bool,
+    ) -> Result<Vec<crate::types::VelibStation>> {
         let mut data_client = self.data_client.write().await;
         data_client.get_all_stations(include_realtime).await
     }
