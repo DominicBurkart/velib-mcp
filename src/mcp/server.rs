@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -418,7 +418,6 @@ impl McpServer {
         }
     }
 }
-
 
 async fn handle_resource(
     axum::extract::Path(uri): axum::extract::Path<String>,
