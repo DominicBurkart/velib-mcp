@@ -34,6 +34,7 @@ impl Default for McpServer {
 }
 
 impl McpServer {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tool_handler: Arc::new(McpToolHandler::new()),
@@ -580,7 +581,7 @@ async fn get_health_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
 
     // Test data source connectivity
     let (realtime_status, reference_status) = match handler.test_connectivity().await {
-        Ok(_) => ("healthy", "healthy"),
+        Ok(()) => ("healthy", "healthy"),
         Err(_) => ("degraded", "degraded"),
     };
 

@@ -8,7 +8,7 @@ pub enum Error {
     Http(#[from] reqwest::Error),
 
     #[error("Rate limited by API (HTTP 429){}", match retry_after_seconds {
-        Some(seconds) => format!(": retry after {}s", seconds),
+        Some(seconds) => format!(": retry after {seconds}s"),
         None => String::new(),
     })]
     RateLimited { retry_after_seconds: Option<u64> },
@@ -45,6 +45,7 @@ pub enum Error {
 
 impl Error {
     /// Get MCP-compatible error code
+    #[must_use]
     pub fn mcp_error_code(&self) -> i32 {
         match self {
             Error::Http(_) => -32001,
@@ -63,6 +64,7 @@ impl Error {
     }
 
     /// Get error type string for structured error data
+    #[must_use]
     pub fn error_type(&self) -> &'static str {
         match self {
             Error::Http(_) => "http_error",

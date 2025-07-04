@@ -44,7 +44,11 @@ async fn test_real_api_fetch_with_timeout() {
         Ok(Ok(stations)) => {
             println!("Successfully fetched {} reference stations", stations.len());
 
-            if !stations.is_empty() {
+            if stations.is_empty() {
+                println!(
+                    "Warning: API returned 0 stations - this may indicate API structure changes"
+                );
+            } else {
                 // Verify station structure if we got data
                 let first_station = &stations[0];
                 assert!(!first_station.station_code.is_empty());
@@ -53,10 +57,6 @@ async fn test_real_api_fetch_with_timeout() {
                 println!(
                     "First station: {} - {}",
                     first_station.station_code, first_station.name
-                );
-            } else {
-                println!(
-                    "Warning: API returned 0 stations - this may indicate API structure changes"
                 );
             }
         }

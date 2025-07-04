@@ -43,8 +43,8 @@ pub struct RetryConfig {
 
     /// Base delay for exponential backoff (in seconds)
     ///
-    /// The actual delay for attempt N will be: base_delay * 2^N
-    /// (subject to max_delay_seconds and jitter).
+    /// The actual delay for attempt N will be: `base_delay` * 2^N
+    /// (subject to `max_delay_seconds` and jitter).
     pub base_delay_seconds: u64,
 
     /// Maximum delay between retries (in seconds)
@@ -101,6 +101,7 @@ pub enum RetryStrategy {
 
 impl RetryStrategy {
     /// Calculate delay for a given attempt number (0-based)
+    #[must_use]
     pub fn calculate_delay(&self, attempt: u32) -> Duration {
         match self {
             RetryStrategy::ExponentialBackoff {
@@ -133,11 +134,13 @@ pub struct RetryPolicy {
 
 impl RetryPolicy {
     /// Create a new retry policy with default configuration
+    #[must_use]
     pub fn new() -> Self {
         Self::with_config(RetryConfig::default())
     }
 
     /// Create a new retry policy with custom configuration
+    #[must_use]
     pub fn with_config(config: RetryConfig) -> Self {
         let strategy = RetryStrategy::ExponentialBackoff {
             base_delay: config.base_delay_seconds,
@@ -263,11 +266,13 @@ pub struct RetryableHttpClient {
 
 impl RetryableHttpClient {
     /// Create a new retryable HTTP client with default retry policy
+    #[must_use]
     pub fn new() -> Self {
         Self::with_retry_policy(RetryPolicy::new())
     }
 
     /// Create a new retryable HTTP client with custom retry policy
+    #[must_use]
     pub fn with_retry_policy(retry_policy: RetryPolicy) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -292,8 +297,7 @@ impl RetryableHttpClient {
                         "Rate limited (429) for {}{}",
                         url,
                         retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {}s",
-                            seconds
+                            ", retry after {seconds}s"
                         ))
                     );
                     return Err(create_rate_limited_error(&response));
@@ -330,8 +334,7 @@ impl RetryableHttpClient {
                         "Rate limited (429) for {}{}",
                         url,
                         retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {}s",
-                            seconds
+                            ", retry after {seconds}s"
                         ))
                     );
                     return Err(create_rate_limited_error(&response));
@@ -349,6 +352,7 @@ impl RetryableHttpClient {
     }
 
     /// Get the underlying reqwest client
+    #[must_use]
     pub fn client(&self) -> &reqwest::Client {
         &self.client
     }

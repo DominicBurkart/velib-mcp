@@ -32,6 +32,7 @@ impl Default for VelibDataClient {
 }
 
 impl VelibDataClient {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             client: RetryableHttpClient::new(),
@@ -55,6 +56,7 @@ impl VelibDataClient {
     ///
     /// let client = VelibDataClient::with_retry_config(retry_config);
     /// ```
+    #[must_use]
     pub fn with_retry_config(retry_config: RetryConfig) -> Self {
         let retry_policy = RetryPolicy::with_config(retry_config);
         Self {
@@ -302,8 +304,7 @@ impl VelibDataClient {
         let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
 
         let last_update = DateTime::parse_from_rfc3339(last_update_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
         let bikes = BikeAvailability::new(mechanical_bikes, electric_bikes);
 

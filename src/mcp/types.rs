@@ -75,6 +75,7 @@ pub struct GeographicBounds {
 }
 
 impl GeographicBounds {
+    #[must_use]
     pub fn contains(&self, coords: &Coordinates) -> bool {
         coords.latitude >= self.south
             && coords.latitude <= self.north

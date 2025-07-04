@@ -33,6 +33,7 @@ where
     K: Clone + Eq + std::hash::Hash,
     V: Clone,
 {
+    #[must_use]
     pub fn new(default_ttl: Duration) -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),

@@ -130,13 +130,10 @@ mod tests {
         env::set_var("PORT", "8080");
 
         // IPv6 parsing might fail depending on the system, so handle both cases
-        match parse_server_address() {
-            Ok(addr) => {
-                assert_eq!(addr.to_string(), "[::1]:8080");
-            }
-            Err(_) => {
-                // IPv6 parsing not supported on this system, skip
-            }
+        if let Ok(addr) = parse_server_address() {
+            assert_eq!(addr.to_string(), "[::1]:8080");
+        } else {
+            // IPv6 parsing not supported on this system, skip
         }
 
         env::remove_var("IP");
