@@ -47,7 +47,6 @@ impl McpServer {
         let clients = Arc::clone(&self.clients);
 
         Router::new()
-            .route("/health", get(health_check))
             .route(
                 "/mcp",
                 post({
@@ -418,14 +417,6 @@ impl McpServer {
             }),
         }
     }
-}
-
-async fn health_check() -> Json<Value> {
-    Json(json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now(),
-        "service": "velib-mcp"
-    }))
 }
 
 async fn handle_resource(
