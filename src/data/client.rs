@@ -8,7 +8,7 @@ use crate::{Error, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 // Paris Open Data API endpoints
 const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-emplacement-des-stations/records";
@@ -94,9 +94,9 @@ impl VelibDataClient {
                 .await?;
 
             let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+            let records = json["results"].as_array().ok_or_else(|| Error::Internal {
+                message: "Invalid API response format".to_string(),
+            })?;
 
             if records.is_empty() {
                 break; // No more records
@@ -152,9 +152,9 @@ impl VelibDataClient {
                 .await?;
 
             let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+            let records = json["results"].as_array().ok_or_else(|| Error::Internal {
+                message: "Invalid API response format".to_string(),
+            })?;
 
             if records.is_empty() {
                 break; // No more records
@@ -182,9 +182,9 @@ impl VelibDataClient {
         Ok(all_status)
     }
 
-    /// Get all stations with optional real-time data
+    /// Get all stations with optional real-time data and fallback handling
     pub async fn get_all_stations(&mut self, include_realtime: bool) -> Result<Vec<VelibStation>> {
-        let reference_stations = self.fetch_reference_stations().await?;
+        let reference_stations = self.get_reference_stations_with_fallback().await?;
 
         if !include_realtime {
             return Ok(reference_stations
@@ -193,7 +193,20 @@ impl VelibDataClient {
                 .collect());
         }
 
-        let realtime_status = self.fetch_realtime_status().await?;
+        // Try to get real-time data, but fallback gracefully if it fails
+        let realtime_status = match self.get_realtime_status_with_fallback().await {
+            Ok(status) => status,
+            Err(e) => {
+                debug!(
+                    "Failed to fetch real-time data, returning reference data only: {}",
+                    e
+                );
+                return Ok(reference_stations
+                    .into_iter()
+                    .map(VelibStation::new)
+                    .collect());
+            }
+        };
 
         let stations = reference_stations
             .into_iter()
@@ -207,6 +220,58 @@ impl VelibDataClient {
             .collect();
 
         Ok(stations)
+    }
+
+    /// Get reference stations with cache fallback
+    async fn get_reference_stations_with_fallback(&mut self) -> Result<Vec<StationReference>> {
+        // Try fresh data first, then fallback to cache
+        match self.fetch_reference_stations().await {
+            Ok(stations) => Ok(stations),
+            Err(e) => {
+                warn!("Failed to fetch fresh reference data, trying cache: {}", e);
+                const CACHE_KEY: &str = "all_reference_stations";
+
+                if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
+                    info!(
+                        "Using stale cached reference stations: {} stations",
+                        cached.len()
+                    );
+                    Ok(cached)
+                } else {
+                    Err(Error::cache_error(
+                        "No cached reference data available",
+                        "fallback",
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Get real-time status with cache fallback  
+    async fn get_realtime_status_with_fallback(
+        &mut self,
+    ) -> Result<HashMap<String, RealTimeStatus>> {
+        // Try fresh data first, then fallback to cache
+        match self.fetch_realtime_status().await {
+            Ok(status) => Ok(status),
+            Err(e) => {
+                warn!("Failed to fetch fresh real-time data, trying cache: {}", e);
+                const CACHE_KEY: &str = "all_realtime_status";
+
+                if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
+                    info!(
+                        "Using stale cached real-time status: {} stations",
+                        cached.len()
+                    );
+                    Ok(cached)
+                } else {
+                    Err(Error::cache_error(
+                        "No cached real-time data available",
+                        "fallback",
+                    ))
+                }
+            }
+        }
     }
 
     /// Get a specific station by code
@@ -225,31 +290,31 @@ impl VelibDataClient {
     fn parse_reference_station(&self, record: &Value) -> Result<StationReference> {
         let station_code = record["stationcode"]
             .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
+            .ok_or_else(|| Error::validation_error("Missing station code", "stationcode"))?
             .to_string();
 
         let name = record["name"]
             .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station name")))?
+            .ok_or_else(|| Error::validation_error("Missing station name", "name"))?
             .to_string();
 
         let capacity = record["capacity"]
             .as_u64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
+            .ok_or_else(|| Error::validation_error("Missing capacity", "capacity"))?
             as u16;
 
         // Parse coordinates from coordonnees_geo
         let geo_point = record["coordonnees_geo"]
             .as_object()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
+            .ok_or_else(|| Error::validation_error("Missing geo coordinates", "coordonnees_geo"))?;
 
         let latitude = geo_point["lat"]
             .as_f64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing latitude")))?;
+            .ok_or_else(|| Error::validation_error("Missing latitude", "coordonnees_geo.lat"))?;
 
         let longitude = geo_point["lon"]
             .as_f64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
+            .ok_or_else(|| Error::validation_error("Missing longitude", "coordonnees_geo.lon"))?;
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
 
@@ -273,7 +338,7 @@ impl VelibDataClient {
     fn parse_realtime_status(&self, record: &Value) -> Result<(String, RealTimeStatus)> {
         let station_code = record["stationcode"]
             .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
+            .ok_or_else(|| Error::validation_error("Missing station code", "stationcode"))?
             .to_string();
 
         let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
