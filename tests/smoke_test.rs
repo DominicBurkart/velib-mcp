@@ -16,7 +16,7 @@ fn find_available_port() -> u16 {
 async fn test_server_starts_and_responds() {
     // Build the server
     let build_output = Command::new("cargo")
-        .args(["build", "--release"])
+        .args(["build"])
         .output()
         .expect("Failed to build server");
 
@@ -24,7 +24,7 @@ async fn test_server_starts_and_responds() {
 
     // Start the server in background
     let port = find_available_port();
-    let mut server = Command::new("./target/release/velib-mcp")
+    let mut server = Command::new("./target/debug/velib-mcp")
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
@@ -36,7 +36,7 @@ async fn test_server_starts_and_responds() {
     // Test health endpoint
     let client = reqwest::Client::new();
     let response = client
-        .get(format!("http://127.0.0.1:{}/health", port))
+        .get(format!("http://127.0.0.1:{port}/health"))
         .timeout(Duration::from_secs(5))
         .send()
         .await;
@@ -62,7 +62,7 @@ async fn test_server_starts_and_responds() {
 async fn test_mcp_tools_endpoint() {
     // Start the server
     let port = find_available_port();
-    let mut server = Command::new("./target/release/velib-mcp")
+    let mut server = Command::new("./target/debug/velib-mcp")
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
@@ -81,7 +81,7 @@ async fn test_mcp_tools_endpoint() {
     });
 
     let response = client
-        .post(format!("http://127.0.0.1:{}/mcp", port))
+        .post(format!("http://127.0.0.1:{port}/mcp"))
         .json(&request_body)
         .timeout(Duration::from_secs(5))
         .send()
