@@ -14,6 +14,7 @@ pub struct Server {
 }
 
 impl Server {
+    #[must_use]
     pub fn new(addr: SocketAddr) -> Self {
         Self { addr }
     }

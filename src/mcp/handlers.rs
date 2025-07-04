@@ -1,5 +1,11 @@
 use crate::data::VelibDataClient;
-use crate::mcp::types::*;
+use crate::mcp::types::{
+    AreaStatistics, AvailableBikesStats, BikeJourney, FindNearbyStationsInput,
+    FindNearbyStationsOutput, GetAreaStatisticsInput, GetAreaStatisticsOutput,
+    GetStationByCodeInput, GetStationByCodeOutput, JourneyPreferences, JourneyRecommendation,
+    PlanBikeJourneyInput, PlanBikeJourneyOutput, SearchMetadata, SearchStationsByNameInput,
+    SearchStationsByNameOutput, StationWithDistance, TextSearchMetadata,
+};
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use crate::{Error, Result};
 use std::sync::Arc;
@@ -26,12 +32,14 @@ impl Default for McpToolHandler {
 }
 
 impl McpToolHandler {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             data_client: Arc::new(RwLock::new(VelibDataClient::new())),
         }
     }
 
+    #[must_use]
     pub fn with_data_client(data_client: VelibDataClient) -> Self {
         Self {
             data_client: Arc::new(RwLock::new(data_client)),
@@ -227,18 +235,18 @@ impl McpToolHandler {
         let mut total_available_docks = 0u32;
 
         for station in &area_stations {
-            total_capacity += station.reference.capacity as u32;
+            total_capacity += u32::from(station.reference.capacity);
 
             if let Some(rt) = &station.real_time {
-                total_mechanical += rt.bikes.mechanical as u32;
-                total_electric += rt.bikes.electric as u32;
-                total_available_docks += rt.available_docks as u32;
+                total_mechanical += u32::from(rt.bikes.mechanical);
+                total_electric += u32::from(rt.bikes.electric);
+                total_available_docks += u32::from(rt.available_docks);
             }
         }
 
         let total_bikes = total_mechanical + total_electric;
         let occupancy_rate = if total_capacity > 0 {
-            total_bikes as f64 / total_capacity as f64
+            f64::from(total_bikes) / f64::from(total_capacity)
         } else {
             0.0
         };
@@ -360,10 +368,10 @@ impl McpToolHandler {
             let best_dropoff = &dropoff_stations[0];
 
             // Calculate confidence score based on walking distances
-            let max_walk = preferences.max_walk_distance as f64;
-            let pickup_walk_ratio = best_pickup.distance_meters as f64 / max_walk;
-            let dropoff_walk_ratio = best_dropoff.distance_meters as f64 / max_walk;
-            let confidence_score = 1.0 - ((pickup_walk_ratio + dropoff_walk_ratio) / 2.0) * 0.5;
+            let max_walk = f64::from(preferences.max_walk_distance);
+            let pickup_walk_ratio = f64::from(best_pickup.distance_meters) / max_walk;
+            let dropoff_walk_ratio = f64::from(best_dropoff.distance_meters) / max_walk;
+            let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
 
             recommendations.push(JourneyRecommendation {
                 pickup_station: best_pickup.station.clone(),

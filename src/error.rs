@@ -7,6 +7,12 @@ pub enum Error {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("Rate limited by API (HTTP 429){}", match retry_after_seconds {
+        Some(seconds) => format!(": retry after {seconds}s"),
+        None => String::new(),
+    })]
+    RateLimited { retry_after_seconds: Option<u64> },
+
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
 
@@ -39,26 +45,30 @@ pub enum Error {
 
 impl Error {
     /// Get MCP-compatible error code
+    #[must_use]
     pub fn mcp_error_code(&self) -> i32 {
         match self {
             Error::Http(_) => -32001,
-            Error::Json(_) => -32700,                     // Parse error
-            Error::InvalidCoordinates { .. } => -32602,   // Invalid params
-            Error::OutsideServiceArea { .. } => -32602,   // Invalid params
+            Error::RateLimited { .. } => -32001, // Server error (rate limit)
+            Error::Json(_) => -32700,            // Parse error
+            Error::InvalidCoordinates { .. } => -32602, // Invalid params
+            Error::OutsideServiceArea { .. } => -32602, // Invalid params
             Error::SearchRadiusTooLarge { .. } => -32602, // Invalid params
-            Error::ResultLimitExceeded { .. } => -32602,  // Invalid params
-            Error::StationNotFound { .. } => -32600,      // Invalid request
-            Error::McpProtocol(_) => -32603,              // Internal error
-            Error::Validation(_) => -32602,               // Invalid params
-            Error::Cache(_) => -32603,                    // Internal error
-            Error::Internal(_) => -32603,                 // Internal error
+            Error::ResultLimitExceeded { .. } => -32602, // Invalid params
+            Error::StationNotFound { .. } => -32600, // Invalid request
+            Error::McpProtocol(_) => -32603,     // Internal error
+            Error::Validation(_) => -32602,      // Invalid params
+            Error::Cache(_) => -32603,           // Internal error
+            Error::Internal(_) => -32603,        // Internal error
         }
     }
 
     /// Get error type string for structured error data
+    #[must_use]
     pub fn error_type(&self) -> &'static str {
         match self {
             Error::Http(_) => "http_error",
+            Error::RateLimited { .. } => "rate_limited",
             Error::Json(_) => "json_error",
             Error::InvalidCoordinates { .. } => "invalid_coordinates",
             Error::OutsideServiceArea { .. } => "outside_service_area",

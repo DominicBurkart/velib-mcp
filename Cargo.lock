@@ -1704,6 +1704,7 @@ dependencies = [
  "axum",
  "cargo-husky",
  "chrono",
+ "fastrand",
  "reqwest",
  "serde",
  "serde_json",

@@ -1,11 +1,11 @@
 use crate::data::cache::InMemoryCache;
+use crate::data::retry::{RetryConfig, RetryPolicy, RetryableHttpClient};
 use crate::types::{
     BikeAvailability, RealTimeStatus, ServiceCapabilities, StationReference, StationStatus,
     VelibStation,
 };
 use crate::{Error, Result};
 use chrono::{DateTime, Duration, Utc};
-use reqwest::Client;
 use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, info};
@@ -20,7 +20,7 @@ const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
 
 #[derive(Debug)]
 pub struct VelibDataClient {
-    client: Client,
+    client: RetryableHttpClient,
     reference_cache: InMemoryCache<String, Vec<StationReference>>,
     realtime_cache: InMemoryCache<String, HashMap<String, RealTimeStatus>>,
 }
@@ -32,9 +32,35 @@ impl Default for VelibDataClient {
 }
 
 impl VelibDataClient {
+    #[must_use]
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: RetryableHttpClient::new(),
+            reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
+            realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
+        }
+    }
+
+    /// Create a new client with custom retry configuration
+    ///
+    /// # Example
+    /// ```
+    /// use velib_mcp::data::{VelibDataClient, RetryConfig};
+    ///
+    /// let retry_config = RetryConfig {
+    ///     max_attempts: 5,
+    ///     base_delay_seconds: 2,
+    ///     max_delay_seconds: 120,
+    ///     use_jitter: true,
+    /// };
+    ///
+    /// let client = VelibDataClient::with_retry_config(retry_config);
+    /// ```
+    #[must_use]
+    pub fn with_retry_config(retry_config: RetryConfig) -> Self {
+        let retry_policy = RetryPolicy::with_config(retry_config);
+        Self {
+            client: RetryableHttpClient::with_retry_policy(retry_policy),
             reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
             realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
         }
@@ -57,22 +83,15 @@ impl VelibDataClient {
         let limit = 100; // API limit
 
         loop {
+            let query_params = &[
+                ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
+            ];
+
             let response = self
                 .client
-                .get(VELIB_STATIONS_URL)
-                .query(&[
-                    ("limit", &limit.to_string()),
-                    ("offset", &offset.to_string()),
-                ])
-                .send()
+                .get_with_query(VELIB_STATIONS_URL, query_params)
                 .await?;
-
-            if !response.status().is_success() {
-                return Err(Error::Internal(anyhow::anyhow!(
-                    "API request failed with status: {}",
-                    response.status()
-                )));
-            }
 
             let json: Value = response.json().await?;
             let records = json["results"]
@@ -122,22 +141,15 @@ impl VelibDataClient {
         let limit = 100; // API limit
 
         loop {
+            let query_params = &[
+                ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
+            ];
+
             let response = self
                 .client
-                .get(VELIB_REALTIME_URL)
-                .query(&[
-                    ("limit", &limit.to_string()),
-                    ("offset", &offset.to_string()),
-                ])
-                .send()
+                .get_with_query(VELIB_REALTIME_URL, query_params)
                 .await?;
-
-            if !response.status().is_success() {
-                return Err(Error::Internal(anyhow::anyhow!(
-                    "API request failed with status: {}",
-                    response.status()
-                )));
-            }
 
             let json: Value = response.json().await?;
             let records = json["results"]
@@ -292,8 +304,7 @@ impl VelibDataClient {
         let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
 
         let last_update = DateTime::parse_from_rfc3339(last_update_str)
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now());
+            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
         let bikes = BikeAvailability::new(mechanical_bikes, electric_bikes);
 

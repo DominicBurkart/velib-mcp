@@ -8,6 +8,7 @@ pub struct Coordinates {
 }
 
 impl Coordinates {
+    #[must_use]
     pub fn new(latitude: f64, longitude: f64) -> Self {
         Self {
             latitude,
@@ -16,8 +17,9 @@ impl Coordinates {
     }
 
     /// Calculate distance to another coordinate in meters using Haversine formula
+    #[must_use]
     pub fn distance_to(&self, other: &Coordinates) -> f64 {
-        let earth_radius = 6371000.0; // Earth radius in meters
+        let earth_radius = 6_371_000.0; // Earth radius in meters
 
         let lat1_rad = self.latitude.to_radians();
         let lat2_rad = other.latitude.to_radians();
@@ -33,6 +35,7 @@ impl Coordinates {
     }
 
     /// Check if coordinates are within reasonable bounds for Paris metro area
+    #[must_use]
     pub fn is_valid_paris_metro(&self) -> bool {
         // Paris metro area bounds (approximate)
         self.latitude >= 48.7
@@ -43,6 +46,7 @@ impl Coordinates {
 
     /// Check if coordinates are within 50km of Paris City Hall (Hôtel de Ville)
     /// Latitude: 48.8565° N, Longitude: 2.3514° E
+    #[must_use]
     pub fn is_within_paris_service_area(&self) -> bool {
         const PARIS_CITY_HALL_LAT: f64 = 48.8565;
         const PARIS_CITY_HALL_LON: f64 = 2.3514;
@@ -79,6 +83,7 @@ pub struct BikeAvailability {
 }
 
 impl BikeAvailability {
+    #[must_use]
     pub fn new(mechanical: u16, electric: u16) -> Self {
         Self {
             mechanical,
@@ -86,18 +91,22 @@ impl BikeAvailability {
         }
     }
 
+    #[must_use]
     pub fn total(&self) -> u16 {
         self.mechanical.saturating_add(self.electric)
     }
 
+    #[must_use]
     pub fn has_bikes(&self) -> bool {
         self.total() > 0
     }
 
+    #[must_use]
     pub fn has_mechanical(&self) -> bool {
         self.mechanical > 0
     }
 
+    #[must_use]
     pub fn has_electric(&self) -> bool {
         self.electric > 0
     }
@@ -118,6 +127,7 @@ pub enum DataFreshness {
 }
 
 impl DataFreshness {
+    #[must_use]
     pub fn from_age(age_minutes: f64) -> Self {
         match age_minutes {
             age if age < 5.0 => DataFreshness::Fresh,
@@ -185,6 +195,7 @@ pub struct RealTimeStatus {
 }
 
 impl RealTimeStatus {
+    #[must_use]
     pub fn new(
         bikes: BikeAvailability,
         available_docks: u16,
@@ -211,6 +222,7 @@ pub struct VelibStation {
 }
 
 impl VelibStation {
+    #[must_use]
     pub fn new(reference: StationReference) -> Self {
         Self {
             reference,
@@ -218,11 +230,13 @@ impl VelibStation {
         }
     }
 
+    #[must_use]
     pub fn with_real_time(mut self, real_time: RealTimeStatus) -> Self {
         self.real_time = Some(real_time);
         self
     }
 
+    #[must_use]
     pub fn is_operational(&self) -> bool {
         match &self.real_time {
             Some(rt) => matches!(rt.status, StationStatus::Open),
@@ -230,6 +244,7 @@ impl VelibStation {
         }
     }
 
+    #[must_use]
     pub fn has_available_bikes(&self, bike_type: &BikeTypeFilter) -> bool {
         match &self.real_time {
             Some(rt) => match bike_type {
@@ -241,6 +256,7 @@ impl VelibStation {
         }
     }
 
+    #[must_use]
     pub fn has_available_docks(&self, min_docks: u16) -> bool {
         match &self.real_time {
             Some(rt) => rt.available_docks >= min_docks,
@@ -252,9 +268,9 @@ impl VelibStation {
         self.reference.validate()?;
 
         if let Some(rt) = &self.real_time {
-            let total_bikes = rt.bikes.total() as u32;
-            let total_docks = rt.available_docks as u32;
-            let capacity = self.reference.capacity as u32;
+            let total_bikes = u32::from(rt.bikes.total());
+            let total_docks = u32::from(rt.available_docks);
+            let capacity = u32::from(self.reference.capacity);
 
             if total_bikes + total_docks > capacity {
                 return Err(format!(
