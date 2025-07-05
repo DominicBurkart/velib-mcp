@@ -84,7 +84,7 @@ jobs:
         sudo apt-get install -y bc
         cargo install cargo-tarpaulin --locked
     - name: Generate coverage report
-      run: cargo tarpaulin --skip-clean --ignore-tests --out xml
+      run: timeout 300 cargo tarpaulin --skip-clean --ignore-tests --out xml
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
@@ -94,12 +94,12 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         # Get current coverage
-        NEW=$(cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
+        NEW=$(timeout 300 cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
         echo "Current coverage: $NEW%"
         
         # Get main branch coverage
         git checkout origin/main
-        OLD=$(cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
+        OLD=$(timeout 300 cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
         echo "Main branch coverage: $OLD%"
         
         # Compare coverage - bc is now guaranteed to be available
