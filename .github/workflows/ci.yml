@@ -69,10 +69,52 @@ jobs:
     - name: Test feature combinations
       run: cargo hack check --feature-powerset --depth 2 --no-dev-deps
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for coverage comparison
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Install bc and cargo-tarpaulin
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc
+        cargo install cargo-tarpaulin --locked
+    - name: Generate coverage report
+      run: timeout 300 cargo tarpaulin --skip-clean --ignore-tests --out xml
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./cobertura.xml
+        fail_ci_if_error: false
+    - name: Check coverage against main
+      if: github.event_name == 'pull_request'
+      run: |
+        # Get current coverage
+        NEW=$(timeout 300 cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
+        echo "Current coverage: $NEW%"
+        
+        # Get main branch coverage
+        git checkout origin/main
+        OLD=$(timeout 300 cargo tarpaulin --skip-clean --ignore-tests | grep -oP '\d+\.\d+(?=% coverage)' | head -1)
+        echo "Main branch coverage: $OLD%"
+        
+        # Compare coverage - bc is now guaranteed to be available
+        if (( $(echo "$NEW >= $OLD" | bc -l) )); then
+          echo "✅ Coverage maintained: $NEW% >= $OLD%"
+        else
+          echo "❌ Coverage decreased: $NEW% < $OLD%"
+          echo "Please add tests to maintain or improve coverage"
+          exit 1
+        fi
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, fmt, clippy, security, feature-testing]
+    needs: [test, fmt, clippy, security, feature-testing, coverage]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable

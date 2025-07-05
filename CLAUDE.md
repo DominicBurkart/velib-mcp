@@ -70,7 +70,33 @@ cargo test                     # Tests complets
 cargo fmt                      # Formatage code
 cargo clippy                   # Analyse statique
 cargo audit                    # Audit sécurité
+cargo tarpaulin                # Coverage reporting (installé via CI/local)
 ```
+
+### Suivi de Couverture de Tests
+Le projet utilise `cargo-tarpaulin` pour le suivi automatique de la couverture de tests :
+
+**Couverture actuelle** : ~41.2% (328/796 lignes)
+
+**Mécanismes de validation** :
+- **Hook pre-commit** : Vérifie que la couverture n'a pas diminué vs branche main
+- **CI GitHub Actions** : Génère rapports et compare couverture lors des PRs
+- **Rapports Codecov** : Upload automatique des métriques de couverture
+
+**Commandes utiles** :
+```bash
+# Rapport de couverture local
+cargo tarpaulin --skip-clean --ignore-tests
+
+# Rapport détaillé avec lignes non couvertes
+cargo tarpaulin --skip-clean --ignore-tests --out html
+```
+
+**Pour améliorer la couverture** :
+- Tests unitaires pour fonctions non couvertes
+- Tests d'intégration pour workflows principaux
+- Tests des chemins d'erreur
+- Tests property-based pour logique complexe
 
 ### Déploiement
 - **Cible** : Scaleway Container Serverless
