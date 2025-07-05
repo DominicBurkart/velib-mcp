@@ -8,6 +8,7 @@ use velib_mcp::mcp::server::McpServer;
 
 /// Test that the stations/reference endpoint returns real station data
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_stations_reference_endpoint_returns_real_data() {
     // This test will initially fail because handle_resource returns hardcoded empty data
     let router = McpServer::new().router();
@@ -42,6 +43,7 @@ async fn test_stations_reference_endpoint_returns_real_data() {
 
 /// Test that the stations/realtime endpoint returns real availability data
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_stations_realtime_endpoint_returns_real_data() {
     let router = McpServer::new().router();
 
@@ -79,6 +81,7 @@ async fn test_stations_realtime_endpoint_returns_real_data() {
 
 /// Test that the stations/complete endpoint returns combined data
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_stations_complete_endpoint_returns_combined_data() {
     let router = McpServer::new().router();
 
@@ -122,6 +125,7 @@ async fn test_stations_complete_endpoint_returns_combined_data() {
 
 /// Test that the health endpoint returns real system metrics
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_health_endpoint_returns_real_metrics() {
     let router = McpServer::new().router();
 
@@ -161,6 +165,7 @@ async fn test_health_endpoint_returns_real_metrics() {
 
 /// Test error handling when data source is unavailable
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_resource_endpoints_handle_api_failures() {
     // This test verifies graceful degradation when the Paris Open Data API is unavailable
     let router = McpServer::new().router();
@@ -193,6 +198,7 @@ async fn test_resource_endpoints_handle_api_failures() {
 
 /// Test that metadata includes accurate timestamps and data freshness
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_resource_metadata_accuracy() {
     let router = McpServer::new().router();
 
@@ -227,6 +233,7 @@ async fn test_resource_metadata_accuracy() {
 
 /// Performance test: Resource endpoints should respond within reasonable time
 #[tokio::test]
+#[cfg_attr(not(feature = "integration-tests"), ignore)]
 async fn test_resource_endpoint_performance() {
     use std::time::Instant;
 
