@@ -70,6 +70,7 @@ cargo test                     # Tests complets
 cargo fmt                      # Formatage code
 cargo clippy                   # Analyse statique
 cargo audit                    # Audit sécurité
+cargo deny check               # Vérification conformité licences
 ```
 
 ### Déploiement
@@ -224,4 +225,27 @@ Ce processus s'intègre parfaitement avec:
 - Architecture worktree existante (isolation parallèle)
 - CI/CD GitHub Actions (validation automatisée)
 - Hooks pre-commit (qualité continue)
-- Toolchain Rust standard (fmt, clippy, audit)
+- Toolchain Rust standard (fmt, clippy, audit, deny)
+
+### Conformité Licences et Sécurité
+
+**Workflow TDD pour cargo-deny:**
+1. **Tests d'abord** : Créer tests de validation dans `tests/license_compliance_test.rs`
+2. **Configuration** : Implémenter `deny.toml` avec règles strictes
+3. **Validation** : Exécuter `cargo deny check` pour identifier non-conformités
+4. **Correction** : Remédier aux dépendances non-conformes
+5. **Intégration** : Intégrer dans CI/CD et hooks pre-commit
+
+**Commandes cargo-deny:**
+```bash
+cargo deny check licenses      # Vérification licences seulement
+cargo deny check bans         # Vérification dépendances bannies
+cargo deny check advisories   # Vérification alertes sécurité
+cargo deny check sources      # Vérification sources de confiance
+cargo deny check              # Vérification complète
+```
+
+**Politique de Licences:**
+- **Autorisées** : MIT, Apache-2.0, BSD-3-Clause, ISC, Unicode-DFS-2016, CC0-1.0
+- **Interdites** : GPL-*, LGPL-*, AGPL-*, EUPL-1.2, OSL-3.0, MPL-2.0
+- **Exceptions** : Définies dans deny.toml pour cas spéciaux (ring, webpki-roots)
