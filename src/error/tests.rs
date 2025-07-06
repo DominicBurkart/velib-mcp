@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use super::super::Error;
 
@@ -133,9 +134,9 @@ mod tests {
         let delay_2 = http_error.retry_delay_ms(2);
 
         // Delays should increase exponentially (accounting for jitter)
-        assert!(delay_0 >= 1000 && delay_0 <= 2000); // Base 1000 + jitter 0-1000
-        assert!(delay_1 >= 2000 && delay_1 <= 3000); // Base 2000 + jitter 0-1000
-        assert!(delay_2 >= 4000 && delay_2 <= 5000); // Base 4000 + jitter 0-1000
+        assert!((1000..=2000).contains(&delay_0)); // Base 1000 + jitter 0-1000
+        assert!((2000..=3000).contains(&delay_1)); // Base 2000 + jitter 0-1000
+        assert!((4000..=5000).contains(&delay_2)); // Base 4000 + jitter 0-1000
 
         // Test maximum delay cap
         let delay_large = http_error.retry_delay_ms(20);
@@ -147,11 +148,11 @@ mod tests {
             timeout_ms: 5000,
         };
         let timeout_delay = timeout_error.retry_delay_ms(0);
-        assert!(timeout_delay >= 2000 && timeout_delay <= 3000); // Base 2000 + jitter
+        assert!((2000..=3000).contains(&timeout_delay)); // Base 2000 + jitter
 
         let cache_error = Error::cache_error("Cache error", "get");
         let cache_delay = cache_error.retry_delay_ms(0);
-        assert!(cache_delay >= 500 && cache_delay <= 1500); // Base 500 + jitter
+        assert!((500..=1500).contains(&cache_delay)); // Base 500 + jitter
     }
 
     #[test]
