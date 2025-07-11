@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+echo "🔧 Running auto-fixes..."
+
+# Apply clippy fixes
+cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features
+
+# Apply formatting
+cargo fmt --all
+
+# Re-stage modified files
+git add -u
+
+# Final validation
+echo "✅ Validating changes..."
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+
+echo "✅ Pre-commit checks passed!"

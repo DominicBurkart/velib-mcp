@@ -69,8 +69,18 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 cargo test                     # Tests complets
 cargo fmt                      # Formatage code
 cargo clippy                   # Analyse statique
+cargo clippy --fix             # Correction automatique warnings clippy
 cargo audit                    # Audit sécurité
 ```
+
+### Hooks Pre-Commit Automatisés
+Le projet utilise `cargo-husky` pour automatiser les corrections de qualité code :
+- **Clippy fixes** : `cargo clippy --fix --allow-dirty --allow-staged`
+- **Formatage** : `cargo fmt --all`
+- **Re-staging** : `git add -u` (fichiers modifiés automatiquement)
+- **Validation finale** : Vérification warnings clippy et formatage
+
+Configuration : `.cargo/husky/hooks/pre-commit`
 
 ### Déploiement
 - **Cible** : Scaleway Container Serverless
