@@ -296,11 +296,11 @@ impl McpServer {
                 let params = request
                     .params
                     .as_object()
-                    .ok_or_else(|| Error::McpProtocol("Invalid params".to_string()))?;
+                    .ok_or_else(|| Error::mcp_protocol_error("Invalid params", "tools/call"))?;
                 let tool_name = params
                     .get("name")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| Error::McpProtocol("Missing tool name".to_string()))?;
+                    .ok_or_else(|| Error::mcp_protocol_error("Missing tool name", "tools/call"))?;
                 let empty_args = json!({});
                 let arguments = params.get("arguments").unwrap_or(&empty_args);
 
@@ -365,7 +365,10 @@ impl McpServer {
                             ]
                         }))
                     }
-                    _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
+                    _ => Err(Error::mcp_protocol_error(
+                        &format!("Unknown tool: {}", tool_name),
+                        "tools/call",
+                    )),
                 }
             }
             "resources/list" => Ok(json!({
@@ -396,10 +399,10 @@ impl McpServer {
                     }
                 ]
             })),
-            _ => Err(Error::McpProtocol(format!(
-                "Unknown method: {}",
-                request.method
-            ))),
+            _ => Err(Error::mcp_protocol_error(
+                &format!("Unknown method: {}", request.method),
+                &request.method,
+            )),
         };
 
         match result {

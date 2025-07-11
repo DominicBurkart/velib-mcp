@@ -217,20 +217,8 @@ impl RetryPolicy {
 
     /// Check if an error is retryable
     fn is_retryable_error(error: &Error) -> bool {
-        match error {
-            Error::Http(reqwest_error) => {
-                if let Some(status) = reqwest_error.status() {
-                    // Retry on 429 (Rate Limited), 500, 502, 503, 504
-                    matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504)
-                } else {
-                    // Retry on network errors (no status code)
-                    true
-                }
-            }
-            Error::RateLimited { .. } => true,
-            // Don't retry on validation errors or other client errors
-            _ => false,
-        }
+        // Use the comprehensive retryable logic from the Error enum
+        error.is_retryable()
     }
 }
 
@@ -306,7 +294,10 @@ impl RetryableHttpClient {
                 // Check for other HTTP errors
                 if !response.status().is_success() {
                     warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
+                    return Err(Error::http_error(
+                        response.error_for_status().unwrap_err(),
+                        url,
+                    ));
                 }
 
                 Ok(response)
@@ -343,7 +334,10 @@ impl RetryableHttpClient {
                 // Check for other HTTP errors
                 if !response.status().is_success() {
                     warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
+                    return Err(Error::http_error(
+                        response.error_for_status().unwrap_err(),
+                        url,
+                    ));
                 }
 
                 Ok(response)
@@ -434,7 +428,10 @@ mod tests {
         assert!(RetryPolicy::is_retryable_error(&rate_limited));
 
         // Test validation error (should not retry)
-        let validation = Error::Validation("Invalid input".to_string());
+        let validation = Error::Validation {
+            message: "Invalid input".to_string(),
+            field: "test".to_string(),
+        };
         assert!(!RetryPolicy::is_retryable_error(&validation));
 
         // Test station not found (should not retry)
@@ -443,9 +440,11 @@ mod tests {
         };
         assert!(!RetryPolicy::is_retryable_error(&not_found));
 
-        // Test internal error (should not retry)
-        let internal = Error::Internal(anyhow::anyhow!("Internal error"));
-        assert!(!RetryPolicy::is_retryable_error(&internal));
+        // Test internal error (should retry)
+        let internal = Error::Internal {
+            message: "Internal error".to_string(),
+        };
+        assert!(RetryPolicy::is_retryable_error(&internal));
     }
 
     #[tokio::test]
@@ -551,7 +550,10 @@ mod tests {
                 let count = call_count_clone.clone();
                 async move {
                     *count.lock().unwrap() += 1;
-                    Err::<i32, Error>(Error::Validation("Invalid input".to_string()))
+                    Err::<i32, Error>(Error::Validation {
+                        message: "Invalid input".to_string(),
+                        field: "test".to_string(),
+                    })
                 }
             })
             .await;

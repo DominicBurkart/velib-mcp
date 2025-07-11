@@ -159,7 +159,9 @@ impl McpToolHandler {
         let start_time = Instant::now();
 
         if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+            return Err(Error::Internal {
+                message: "Search query too short".to_string(),
+            });
         }
 
         if input.limit > MAX_RESULT_LIMIT {
