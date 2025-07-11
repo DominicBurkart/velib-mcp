@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "velib": {
+      "command": "/path/to/velib-mcp/target/release/velib-mcp",
+      "env": {
+        "IP": "127.0.0.1",
+        "PORT": "8080"
+      }
+    }
+  }
+}
