@@ -42,6 +42,7 @@ check_rust() {
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
         print_success "Rust installed successfully"
+        print_warning "Note: You may need to restart your terminal or run 'source ~/.cargo/env' to use Rust in new sessions"
     else
         print_success "Rust already installed"
     fi
