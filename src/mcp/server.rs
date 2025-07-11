@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use super::documentation::{DocumentationConfig, DocumentationFormat, DocumentationGenerator};
 use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::{Error, Result};
@@ -359,6 +360,56 @@ impl McpServer {
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {}", tool_name))),
                 }
             }
+            "docs/schema" => {
+                let empty_map = serde_json::Map::new();
+                let params = request.params.as_object().unwrap_or(&empty_map);
+
+                // Parse parameters
+                let format = params
+                    .get("format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("json");
+                let include_examples = params
+                    .get("include_examples")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                let token_efficient = params
+                    .get("token_efficient")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let include_metadata = params
+                    .get("include_metadata")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                let doc_format = match format {
+                    "json" => DocumentationFormat::Json,
+                    "openapi" => DocumentationFormat::OpenApi,
+                    "markdown" => DocumentationFormat::Markdown,
+                    "csv" => DocumentationFormat::Csv,
+                    _ => DocumentationFormat::Json,
+                };
+
+                let config = DocumentationConfig {
+                    format: doc_format,
+                    include_examples,
+                    token_efficient,
+                    include_metadata,
+                    version: "1.0.0".to_string(),
+                };
+
+                let generator = DocumentationGenerator::new(config);
+                let docs = generator.generate_formatted_documentation().map_err(|e| {
+                    Error::Internal(anyhow::anyhow!("Documentation generation failed: {}", e))
+                })?;
+
+                Ok(json!({
+                    "schema": docs,
+                    "version": "1.0.0",
+                    "last_updated": chrono::Utc::now(),
+                    "format": format
+                }))
+            }
             "resources/list" => Ok(json!({
                 "resources": [
                     {
@@ -383,6 +434,12 @@ impl McpServer {
                         "uri": "velib://health",
                         "name": "Service Health Status",
                         "description": "System health and data source status information",
+                        "mimeType": "application/json"
+                    },
+                    {
+                        "uri": "velib://docs/schema",
+                        "name": "MCP Schema Documentation",
+                        "description": "Complete API documentation and schema information for LLM consumption",
                         "mimeType": "application/json"
                     }
                 ]
@@ -465,6 +522,23 @@ async fn handle_resource(axum::extract::Path(uri): axum::extract::Path<String>) 
             }
         }))
         .into_response(),
+        "velib://docs/schema" => {
+            let generator = DocumentationGenerator::new(DocumentationConfig::default());
+            match generator.generate_formatted_documentation() {
+                Ok(docs) => Json(json!({
+                    "schema": docs,
+                    "version": "1.0.0",
+                    "last_updated": chrono::Utc::now(),
+                    "format": "json"
+                }))
+                .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Documentation generation failed: {}", e)})),
+                )
+                    .into_response(),
+            }
+        }
         _ => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Resource not found"})),

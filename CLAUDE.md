@@ -51,17 +51,25 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 - **Deux datasets principaux** :
   - Disponibilité stations en temps réel
   - Localisations et métadonnées des stations
+- **Endpoint documentation auto-générée** :
+  - Méthode MCP `docs/schema` avec formats multiples (JSON, OpenAPI, Markdown, CSV)
+  - Ressource `velib://docs/schema` pour accès direct
+  - Optimisé pour consommation LLM avec exemples et contraintes
 - **Déploiement Scaleway** via GitHub Actions
-- **Suite de tests complète** (18+ tests)
+- **Suite de tests complète** (43+ tests incluant documentation)
 - **Validations sécurité** incluant limites zone service 50km
 
 ### Fichiers Importants
 - `/src/main.rs` - Point d'entrée principal
 - `/src/mcp/` - Implémentation protocole MCP
+  - `/src/mcp/documentation.rs` - Générateur documentation auto-générée
+  - `/src/mcp/server.rs` - Serveur MCP avec endpoint `docs/schema`
+  - `/src/mcp/handlers.rs` - Handlers des outils MCP
 - `/src/data/` - Client données et cache
 - `/src/types.rs` - Structures de données principales
 - `/docs/api/data_analysis.md` - Analyse données complète
 - `/docs/context/etat_actuel.md` - Suivi statut projet
+- `/llms.txt` - Guide intégration LLM
 
 ### Commandes Développement
 ```bash
@@ -69,6 +77,7 @@ cargo test                     # Tests complets
 cargo fmt                      # Formatage code
 cargo clippy                   # Analyse statique
 cargo audit                    # Audit sécurité
+cargo test --test mcp_documentation_tests  # Tests documentation MCP
 ```
 
 ### Déploiement

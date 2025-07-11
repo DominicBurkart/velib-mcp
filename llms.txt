@@ -1,0 +1,280 @@
+# Velib MCP Server - LLM Integration Guide
+
+## Overview
+This is a Model Context Protocol (MCP) server providing comprehensive access to Paris Velib bike-sharing data. The server offers real-time bike availability, station locations, and journey planning capabilities optimized for LLM consumption.
+
+## Quick Start
+To integrate with this MCP server:
+
+1. **Server URL**: `http://localhost:8080` (local development)
+2. **Protocol**: JSON-RPC 2.0 over HTTP/WebSocket
+3. **Documentation Endpoint**: Call `docs/schema` method or access `velib://docs/schema` resource
+
+## Key Features for LLMs
+
+### Real-time Data Access
+- **Live bike availability**: Updated every 60 seconds
+- **Station locations**: 1,400+ stations across Paris
+- **Journey planning**: Optimal pickup/dropoff recommendations
+- **Area statistics**: Aggregated metrics for geographic regions
+
+### Geographic Coverage
+- **Service Area**: Paris metropolitan area (50km radius from City Hall)
+- **Coordinates**: Latitude 48.7-49.0°N, Longitude 2.0-2.6°E
+- **Stations**: Complete coverage of Paris and surrounding communes
+
+### LLM-Optimized Features
+- **Self-documentation**: Comprehensive schema information available at runtime
+- **Clear error messages**: Actionable guidance for fixing issues
+- **Usage examples**: Detailed examples for every tool and endpoint
+- **Performance notes**: Response times and caching information
+- **Token efficiency**: Compact response formats available
+
+## Available Tools
+
+### 1. find_nearby_stations
+Find bike stations within walking distance of a location.
+- **Purpose**: Locate stations for pickup or dropoff
+- **Constraints**: 5km max radius, 100 station limit
+- **Typical use**: "Find stations with electric bikes near the Louvre"
+
+### 2. get_station_by_code
+Get detailed information about a specific station.
+- **Purpose**: Retrieve complete station details
+- **Input**: Station code (numeric string)
+- **Typical use**: "Get current status of station 32017"
+
+### 3. search_stations_by_name
+Search stations by name with fuzzy matching.
+- **Purpose**: Find stations by landmark or street name
+- **Features**: Fuzzy search, case-insensitive
+- **Typical use**: "Find stations near 'Eiffel Tower'"
+
+### 4. get_area_statistics
+Get aggregated statistics for a geographic area.
+- **Purpose**: Analyze bike availability in regions
+- **Output**: Total capacity, occupancy rates, bike counts
+- **Typical use**: "What's the bike availability in the 1st arrondissement?"
+
+### 5. plan_bike_journey
+Plan optimal bike trips with pickup/dropoff suggestions.
+- **Purpose**: End-to-end journey planning
+- **Features**: Confidence scoring, walking distances
+- **Typical use**: "Plan a bike trip from Louvre to Eiffel Tower"
+
+## Available Resources
+
+### 1. velib://stations/reference
+Static station metadata (locations, names, capacity)
+- **Update frequency**: Daily at 06:00 UTC
+- **Cache TTL**: 1 hour
+- **Content**: 1,400+ stations with geographic coordinates
+
+### 2. velib://stations/realtime
+Current bike and dock availability
+- **Update frequency**: Every 60 seconds
+- **Cache TTL**: 90 seconds
+- **Content**: Live availability data for all stations
+
+### 3. velib://stations/complete
+Combined reference and real-time data
+- **Update frequency**: Every 60 seconds
+- **Cache TTL**: 90 seconds
+- **Content**: Complete station information in single response
+
+### 4. velib://health
+System health and data source status
+- **Update frequency**: Real-time
+- **Cache TTL**: 30 seconds
+- **Content**: Service status, uptime, cache statistics
+
+### 5. velib://docs/schema
+Complete API documentation and schema information
+- **Update frequency**: Real-time
+- **Cache TTL**: None (generated on demand)
+- **Content**: Self-documenting schema for LLM consumption
+
+## Best Practices for LLMs
+
+### 1. Always Check Availability
+Before recommending a station for pickup, verify it has available bikes:
+```json
+{
+  "method": "find_nearby_stations",
+  "params": {
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "availability_filter": {
+      "bike_type": "electric"
+    }
+  }
+}
+```
+
+### 2. Handle Geographic Constraints
+All coordinates must be within Paris metropolitan area:
+- Latitude: 48.7-49.0°N
+- Longitude: 2.0-2.6°E
+- Service area: 50km radius from Paris City Hall
+
+### 3. Use Appropriate Search Radii
+- Walking distance: 200-500m
+- Cycling distance: 1-2km
+- Area analysis: 2-5km
+- Maximum allowed: 5km
+
+### 4. Consider Data Freshness
+- Real-time data: Fresh for 60-90 seconds
+- Reference data: Fresh for 1 hour
+- Check `data_freshness` field in responses
+
+### 5. Handle Errors Gracefully
+Common error scenarios and solutions:
+- **No nearby stations**: Increase search radius
+- **Station not found**: Use name search first
+- **Invalid coordinates**: Verify Paris area bounds
+- **Rate limited**: Wait for reset time
+
+## Common Usage Patterns
+
+### Journey Planning Workflow
+1. `find_nearby_stations` → Find pickup options
+2. `find_nearby_stations` → Find dropoff options
+3. `plan_bike_journey` → Get optimal recommendations
+
+### Station Discovery Workflow
+1. `search_stations_by_name` → Find by landmark
+2. `get_station_by_code` → Get detailed info
+3. `find_nearby_stations` → Find alternatives
+
+### Area Analysis Workflow
+1. `get_area_statistics` → Overview of region
+2. `find_nearby_stations` → Detailed station list
+3. `get_station_by_code` → Specific station details
+
+## Error Handling
+
+### Common Error Codes
+- `-32001`: Station not found
+- `-32002`: Invalid coordinates
+- `-32003`: Outside service area
+- `-32004`: Search radius too large
+- `-32005`: Result limit exceeded
+
+### Recovery Strategies
+- **Expand search criteria**: Increase radius or limits
+- **Validate inputs**: Check coordinate bounds
+- **Try alternatives**: Use name search vs. code lookup
+- **Check service status**: Use health endpoint
+
+## Performance Considerations
+
+### Response Times
+- Station lookup: 30-100ms
+- Nearby search: 50-200ms
+- Area statistics: 100-500ms
+- Journey planning: 200-800ms
+
+### Rate Limits
+- Tools: 100 requests/minute
+- Resources: 60 requests/minute
+- Burst: 10 requests/second
+
+### Caching Strategy
+- Cache reference data locally when possible
+- Respect TTL values for real-time data
+- Use health endpoint to verify data freshness
+
+## Integration Examples
+
+### Basic Station Search
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "find_nearby_stations",
+    "arguments": {
+      "latitude": 48.8566,
+      "longitude": 2.3522,
+      "radius_meters": 500,
+      "limit": 5
+    }
+  },
+  "id": 1
+}
+```
+
+### Journey Planning
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "plan_bike_journey",
+    "arguments": {
+      "origin": {"latitude": 48.8606, "longitude": 2.3376},
+      "destination": {"latitude": 48.8584, "longitude": 2.2945},
+      "preferences": {
+        "bike_type": "electric",
+        "max_walk_distance": 400
+      }
+    }
+  },
+  "id": 2
+}
+```
+
+### Get Documentation
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "docs/schema",
+  "params": {
+    "format": "json",
+    "include_examples": true,
+    "token_efficient": false
+  },
+  "id": 3
+}
+```
+
+## Support and Troubleshooting
+
+### Health Monitoring
+Use the health endpoint to check system status:
+```
+GET /resources/velib://health
+```
+
+### Documentation Updates
+The schema documentation is generated dynamically and always reflects the current API state. Access it via:
+- Method: `docs/schema`
+- Resource: `velib://docs/schema`
+
+### Common Issues
+1. **Connection errors**: Check server availability
+2. **Invalid responses**: Verify request format
+3. **Rate limiting**: Implement backoff strategies
+4. **Stale data**: Check cache TTL and data freshness
+
+## Technical Details
+
+### Data Sources
+- **Real-time**: Paris Open Data API (99.5% uptime)
+- **Reference**: Paris Open Data API (99.9% uptime)
+- **Update cycle**: Real-time every 60s, reference daily
+
+### Security
+- Geographic bounds enforcement
+- Rate limiting protection
+- Input validation for all parameters
+- No sensitive data exposure
+
+### Extensibility
+- Multiple output formats (JSON, OpenAPI, Markdown, CSV)
+- Configurable response detail levels
+- Token-efficient modes for cost optimization
+- Comprehensive error context
+
+This MCP server is designed to provide LLMs with reliable, comprehensive access to Paris bike-sharing data while maintaining optimal performance and usability.
