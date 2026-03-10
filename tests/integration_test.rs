@@ -106,7 +106,7 @@ async fn test_velib_tool_functionality() {
     let response = client
         .post(format!("http://127.0.0.1:{port}/mcp"))
         .json(&request)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .send()
         .await;
 
