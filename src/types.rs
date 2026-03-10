@@ -120,19 +120,19 @@ impl Default for BikeAvailability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DataFreshness {
-    Fresh,     // < 5 minutes old
-    Recent,    // 5-15 minutes old
-    Stale,     // 15-60 minutes old
-    VeryStale, // > 60 minutes old
+    Fresh,     // < 10 minutes old
+    Recent,    // 10-30 minutes old
+    Stale,     // 30-120 minutes old
+    VeryStale, // > 120 minutes old
 }
 
 impl DataFreshness {
     #[must_use]
     pub fn from_age(age_minutes: f64) -> Self {
         match age_minutes {
-            age if age < 5.0 => DataFreshness::Fresh,
-            age if age < 15.0 => DataFreshness::Recent,
-            age if age < 60.0 => DataFreshness::Stale,
+            age if age < 10.0 => DataFreshness::Fresh,
+            age if age < 30.0 => DataFreshness::Recent,
+            age if age < 120.0 => DataFreshness::Stale,
             _ => DataFreshness::VeryStale,
         }
     }
@@ -357,9 +357,9 @@ mod tests {
     #[test]
     fn test_data_freshness() {
         assert_eq!(DataFreshness::from_age(2.0), DataFreshness::Fresh);
-        assert_eq!(DataFreshness::from_age(10.0), DataFreshness::Recent);
-        assert_eq!(DataFreshness::from_age(30.0), DataFreshness::Stale);
-        assert_eq!(DataFreshness::from_age(90.0), DataFreshness::VeryStale);
+        assert_eq!(DataFreshness::from_age(20.0), DataFreshness::Recent);
+        assert_eq!(DataFreshness::from_age(60.0), DataFreshness::Stale);
+        assert_eq!(DataFreshness::from_age(180.0), DataFreshness::VeryStale);
     }
 
     #[test]

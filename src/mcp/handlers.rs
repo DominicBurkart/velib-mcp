@@ -1,3 +1,5 @@
+use unicode_normalization::UnicodeNormalization;
+
 use crate::data::VelibDataClient;
 use crate::mcp::types::{
     AreaStatistics, AvailableBikesStats, BikeJourney, FindNearbyStationsInput,
@@ -105,7 +107,7 @@ impl McpToolHandler {
                     if has_requested_bikes && station.is_operational() {
                         Some(StationWithDistance {
                             station,
-                            distance_meters: distance,
+                            straight_line_distance_meters: distance,
                         })
                     } else {
                         None
@@ -117,7 +119,7 @@ impl McpToolHandler {
             .collect();
 
         // Sort by distance
-        nearby_stations.sort_by_key(|s| s.distance_meters);
+        nearby_stations.sort_by_key(|s| s.straight_line_distance_meters);
 
         // Limit results
         nearby_stations.truncate(input.limit as usize);
@@ -173,17 +175,20 @@ impl McpToolHandler {
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        let query_lower = input.query.to_lowercase();
+        let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
         let mut matching_stations: Vec<VelibStation> = all_stations
             .into_iter()
             .filter(|station| {
-                let name_lower = station.reference.name.to_lowercase();
+                let name_normalized = station
+                    .reference
+                    .name
+                    .to_lowercase()
+                    .nfc()
+                    .collect::<String>();
                 if input.fuzzy {
-                    // Simple fuzzy matching - contains substring
-                    name_lower.contains(&query_lower)
+                    name_normalized.contains(&query_normalized)
                 } else {
-                    // Exact matching - starts with query
-                    name_lower.starts_with(&query_lower)
+                    name_normalized.starts_with(&query_normalized)
                 }
             })
             .collect();
@@ -318,7 +323,7 @@ impl McpToolHandler {
                 {
                     Some(StationWithDistance {
                         station: station.clone(),
-                        distance_meters: distance,
+                        straight_line_distance_meters: distance,
                     })
                 } else {
                     None
@@ -326,7 +331,7 @@ impl McpToolHandler {
             })
             .collect();
 
-        pickup_candidates.sort_by_key(|s| s.distance_meters);
+        pickup_candidates.sort_by_key(|s| s.straight_line_distance_meters);
         pickup_candidates.truncate(3);
 
         // Find dropoff stations near destination
@@ -345,7 +350,7 @@ impl McpToolHandler {
                 {
                     Some(StationWithDistance {
                         station: station.clone(),
-                        distance_meters: distance,
+                        straight_line_distance_meters: distance,
                     })
                 } else {
                     None
@@ -353,7 +358,7 @@ impl McpToolHandler {
             })
             .collect();
 
-        dropoff_candidates.sort_by_key(|s| s.distance_meters);
+        dropoff_candidates.sort_by_key(|s| s.straight_line_distance_meters);
         dropoff_candidates.truncate(3);
 
         let pickup_stations = pickup_candidates;
@@ -369,15 +374,16 @@ impl McpToolHandler {
 
             // Calculate confidence score based on walking distances
             let max_walk = f64::from(preferences.max_walk_distance);
-            let pickup_walk_ratio = f64::from(best_pickup.distance_meters) / max_walk;
-            let dropoff_walk_ratio = f64::from(best_dropoff.distance_meters) / max_walk;
+            let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
+            let dropoff_walk_ratio =
+                f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
             let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
 
             recommendations.push(JourneyRecommendation {
                 pickup_station: best_pickup.station.clone(),
                 dropoff_station: best_dropoff.station.clone(),
-                walk_to_pickup: best_pickup.distance_meters,
-                walk_from_dropoff: best_dropoff.distance_meters,
+                straight_line_to_pickup_meters: best_pickup.straight_line_distance_meters,
+                straight_line_from_dropoff_meters: best_dropoff.straight_line_distance_meters,
                 confidence_score: confidence_score.clamp(0.1, 1.0),
             });
         }
