@@ -1,13 +1,15 @@
 use axum::{
-    extract::{ws::WebSocket, WebSocketUpgrade},
+    extract::{rejection::JsonRejection, ws::WebSocket, WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use chrono::Utc;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -18,6 +20,7 @@ use crate::{Error, Result};
 pub struct McpServer {
     tool_handler: Arc<McpToolHandler>,
     clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
+    start_time: Instant,
 }
 
 #[derive(Debug)]
@@ -39,6 +42,7 @@ impl McpServer {
         Self {
             tool_handler: Arc::new(McpToolHandler::new()),
             clients: Arc::new(RwLock::new(HashMap::new())),
+            start_time: Instant::now(),
         }
     }
 
@@ -51,7 +55,23 @@ impl McpServer {
                 "/mcp",
                 post({
                     let handler = Arc::clone(&handler);
-                    move |Json(request): Json<JsonRpcRequest>| async move {
+                    move |request: std::result::Result<Json<JsonRpcRequest>, JsonRejection>| async move {
+                        let request = match request {
+                            Ok(Json(r)) => r,
+                            Err(e) => {
+                                let response = JsonRpcResponse {
+                                    jsonrpc: "2.0".to_string(),
+                                    id: serde_json::Value::Null,
+                                    result: None,
+                                    error: Some(JsonRpcError {
+                                        code: -32700,
+                                        message: e.to_string(),
+                                        data: None,
+                                    }),
+                                };
+                                return Json(response).into_response();
+                            }
+                        };
                         match Self::process_jsonrpc_request(handler, request).await {
                             Ok(response) => Json(response).into_response(),
                             Err(e) => {
@@ -82,9 +102,10 @@ impl McpServer {
                 "/resources/*uri",
                 get({
                     let handler = Arc::clone(&handler);
+                    let start_time = self.start_time;
                     move |uri: axum::extract::Path<String>| {
                         let handler = Arc::clone(&handler);
-                        async move { handle_resource(uri, handler).await }
+                        async move { handle_resource(uri, handler, start_time).await }
                     }
                 }),
             )
@@ -422,6 +443,7 @@ impl McpServer {
 async fn handle_resource(
     axum::extract::Path(uri): axum::extract::Path<String>,
     handler: Arc<McpToolHandler>,
+    start_time: Instant,
 ) -> Response {
     match uri.as_str() {
         "velib://stations/reference" => {
@@ -472,7 +494,7 @@ async fn handle_resource(
                 }
             }
         }
-        "velib://health" => match get_health_resource(Arc::clone(&handler)).await {
+        "velib://health" => match get_health_resource(Arc::clone(&handler), start_time).await {
             Ok(response) => Json(response).into_response(),
             Err(e) => {
                 error!("Failed to get health status: {}", e);
@@ -557,38 +579,49 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 }
 
 /// Get health resource data with real metrics
-async fn get_health_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
+async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) -> Result<Value> {
+    let uptime_seconds = start_time.elapsed().as_secs();
+
     // Get real cache statistics
     let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
 
     // Calculate hit rate based on cache usage (simplified)
     let hit_rate = if total_entries > 0 {
-        // Real calculation based on cache efficiency
         0.75 + (total_entries as f64 / 2000.0) * 0.2
     } else {
         0.0
     };
 
-    // Test data source connectivity
-    let (realtime_status, reference_status) = match handler.test_connectivity().await {
-        Ok(()) => ("healthy", "healthy"),
-        Err(_) => ("degraded", "degraded"),
-    };
+    // Fetch stations to compute real lag from most recent station last_update timestamp
+    let (realtime_status, reference_status, lag_seconds, most_recent_update) =
+        match handler.get_complete_stations(true).await {
+            Ok(stations) => {
+                let most_recent = stations
+                    .iter()
+                    .filter_map(|s| s.real_time.as_ref().map(|rt| rt.last_update))
+                    .max();
+                let lag = most_recent
+                    .map(|t| (Utc::now() - t).num_seconds().max(0) as u64)
+                    .unwrap_or(0);
+                ("healthy", "healthy", lag, most_recent)
+            }
+            Err(_) => ("degraded", "degraded", 0u64, None),
+        };
 
     Ok(json!({
         "status": "healthy",
         "version": "1.0.0",
-        "uptime_seconds": 0, // TODO: Add real uptime tracking
+        "uptime_seconds": uptime_seconds,
         "data_sources": {
             "real_time": {
                 "status": realtime_status,
-                "last_update": chrono::Utc::now(),
-                "lag_seconds": 45 // TODO: Calculate real lag
+                "last_update": most_recent_update,
+                "lag_seconds": lag_seconds
             },
             "reference": {
                 "status": reference_status,
-                "last_update": chrono::Utc::now()
+                "last_update": Utc::now()
             }
         },
         "cache_stats": {

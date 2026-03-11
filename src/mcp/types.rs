@@ -88,15 +88,15 @@ impl GeographicBounds {
 pub struct StationWithDistance {
     #[serde(flatten)]
     pub station: VelibStation,
-    pub distance_meters: u32,
+    pub straight_line_distance_meters: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JourneyRecommendation {
     pub pickup_station: VelibStation,
     pub dropoff_station: VelibStation,
-    pub walk_to_pickup: u32,
-    pub walk_from_dropoff: u32,
+    pub straight_line_to_pickup_meters: u32,
+    pub straight_line_from_dropoff_meters: u32,
     pub confidence_score: f64,
 }
 
@@ -204,7 +204,6 @@ pub struct SearchMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetStationByCodeOutput {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub station: Option<VelibStation>,
     pub found: bool,
 }
@@ -236,7 +235,6 @@ pub struct PlanBikeJourneyOutput {
 
 // Generic MCP Types
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "jsonrpc")]
 pub struct JsonRpcRequest {
     #[serde(default = "default_jsonrpc")]
     pub jsonrpc: String,
@@ -250,7 +248,6 @@ fn default_jsonrpc() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "jsonrpc")]
 pub struct JsonRpcResponse {
     #[serde(default = "default_jsonrpc")]
     pub jsonrpc: String,
@@ -278,5 +275,44 @@ impl From<crate::Error> for JsonRpcError {
                 "error_type": err.error_type()
             })),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn station_not_found_serializes_null_station() {
+        let output = GetStationByCodeOutput {
+            station: None,
+            found: false,
+        };
+        let serialized = serde_json::to_string(&output).unwrap();
+        assert!(serialized.contains("\"station\":null"));
+        assert!(serialized.contains("\"found\":false"));
+    }
+
+    #[test]
+    fn jsonrpc_response_omits_null_fields() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: json!(1),
+            result: Some(json!({"ok": true})),
+            error: None,
+        };
+        let serialized = serde_json::to_string(&response).unwrap();
+        assert!(!serialized.contains("\"error\""));
+        assert!(serialized.contains("\"result\""));
+        assert!(serialized.contains("\"jsonrpc\":\"2.0\""));
+    }
+
+    #[test]
+    fn jsonrpc_error_from_internal_error() {
+        let err = crate::Error::Internal(anyhow::anyhow!("test error"));
+        let rpc_err = JsonRpcError::from(err);
+        assert_eq!(rpc_err.code, -32603);
+        assert!(rpc_err.message.contains("test error"));
     }
 }
