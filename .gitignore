@@ -26,3 +26,11 @@ logs/
 # Cache
 .cache/
 *worktree/
+
+# Nix
+result
+result-*
+.direnv
+
+# Local deploy config (contains infra secrets)
+.env.deploy
