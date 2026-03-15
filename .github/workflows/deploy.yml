@@ -57,26 +57,27 @@ jobs:
         run: |
           nix build .#container --print-build-logs --accept-flake-config
 
-      - name: Load container into podman
+      - name: Load container into Docker
         run: |
           CONTAINER_PATH=$(nix path-info .#container)
-          skopeo copy "docker-archive:$CONTAINER_PATH" "containers-storage:$CONTAINER_NAME:latest"
+          docker load -i "$CONTAINER_PATH"
+          docker tag velib-mcp:latest $CONTAINER_NAME:latest
 
       - name: Run container checks
         run: |
           chmod +x ./container_checks.sh
-          ./container_checks.sh
+          CONTAINER_RUNTIME=docker ./container_checks.sh
 
       - name: Login to Scaleway Container Registry
         env:
           SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
         run: |
-          echo "$SCW_SECRET_KEY" | podman login $SCALEWAY_REGISTRY -u nologin --password-stdin
+          echo "$SCW_SECRET_KEY" | docker login $SCALEWAY_REGISTRY -u nologin --password-stdin
 
       - name: Tag and push container
         run: |
-          podman tag $CONTAINER_NAME:latest $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
-          podman push $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
+          docker tag $CONTAINER_NAME:latest $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
+          docker push $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
 
       - name: Deploy to Scaleway
         env:
