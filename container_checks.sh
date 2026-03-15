@@ -49,7 +49,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     break
   fi
 
-  if ! podman ps --filter "id=$CONTAINER_ID" --format "{{.ID}}" | grep -q "$CONTAINER_ID"; then
+  if ! podman ps --filter "id=$CONTAINER_ID" --format "{{.ID}}" | grep -q "${CONTAINER_ID:0:12}"; then
     echo "ERROR: Container exited prematurely"
     podman logs "$CONTAINER_ID"
     STATUS=1

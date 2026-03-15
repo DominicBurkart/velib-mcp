@@ -14,17 +14,9 @@ fn find_available_port() -> u16 {
 
 #[tokio::test]
 async fn test_server_starts_and_responds() {
-    // Build the server
-    let build_output = Command::new("cargo")
-        .args(["build"])
-        .output()
-        .expect("Failed to build server");
-
-    assert!(build_output.status.success(), "Server build failed");
-
     // Start the server in background
     let port = find_available_port();
-    let mut server = Command::new("./target/debug/velib-mcp")
+    let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
@@ -62,7 +54,7 @@ async fn test_server_starts_and_responds() {
 async fn test_mcp_tools_endpoint() {
     // Start the server
     let port = find_available_port();
-    let mut server = Command::new("./target/debug/velib-mcp")
+    let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
