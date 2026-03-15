@@ -6,116 +6,119 @@ on:
   workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
-  REGISTRY: rg.fr-par.scw.cloud
-  NAMESPACE: ${{ secrets.SCW_REGISTRY_NAMESPACE }}
-  IMAGE_NAME: velib-mcp
+  CONTAINER_NAME: velib-mcp
+  SCALEWAY_REGISTRY: rg.fr-par.scw.cloud/${{ secrets.SCW_REGISTRY_NAMESPACE }}
+  SCALEWAY_CONTAINER_NAME: velib-mcp
+  SCALEWAY_REGION: fr-par
 
 jobs:
-  build-and-deploy:
+  deploy:
+    name: Build and Deploy
     runs-on: ubuntu-latest
-    environment: deploy
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install and configure Podman
-      run: |
-        # Update package lists
-        sudo apt-get update
-        
-        # Install Podman from Ubuntu repositories (more reliable than pinning specific versions)
-        sudo apt-get install -y podman
-        
-        # Configure Podman for rootless operation
-        sudo sysctl kernel.unprivileged_userns_clone=1
-        
-        # Verify Podman installation
-        podman --version
-        podman info
+      - name: Install Nix
+        uses: cachix/install-nix-action@v26
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
 
-    - name: Log in to Scaleway Container Registry
-      run: |
-        echo "${{ secrets.SCW_SECRET_KEY }}" | podman login --username nologin --password-stdin ${{ env.REGISTRY }}
+      - name: Install Scaleway CLI
+        run: |
+          curl -o /tmp/scw -L "https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli_$(uname -s)_$(uname -m)"
+          sudo install -m 755 /tmp/scw /usr/local/bin/scw
+          scw version
 
-    - name: Generate image tags and labels
-      id: generate_tags
-      run: |
-        REGISTRY="${{ env.REGISTRY }}"
-        NAMESPACE="${{ env.NAMESPACE }}"
-        IMAGE_NAME="${{ env.IMAGE_NAME }}"
-        BRANCH_NAME="${{ github.ref_name }}"
-        SHA="${{ github.sha }}"
-        
-        # Sanitize branch name for use in container tags (replace / with -)
-        SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
-        
-        # Generate tags with namespace
-        TAGS=""
-        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${SAFE_BRANCH_NAME},"
-        TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${SHA},"
-        
-        # Add latest tag for main branch
-        if [ "${{ github.ref_name }}" = "main" ]; then
-          TAGS="${TAGS}${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:latest,"
-        fi
-        
-        # Remove trailing comma
-        TAGS=$(echo "$TAGS" | sed 's/,$//')
-        
-        echo "tags=$TAGS" >> $GITHUB_OUTPUT
-        echo "image=${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}" >> $GITHUB_OUTPUT
+      - name: Configure Scaleway CLI
+        env:
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
+          SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
+          SCW_DEFAULT_REGION: ${{ env.SCALEWAY_REGION }}
+        run: |
+          mkdir -p ~/.config/scw
+          cat > ~/.config/scw/config.yaml <<EOF
+          access_key: $SCW_ACCESS_KEY
+          secret_key: $SCW_SECRET_KEY
+          default_organization_id: $SCW_DEFAULT_ORGANIZATION_ID
+          default_project_id: $SCW_DEFAULT_PROJECT_ID
+          default_region: $SCW_DEFAULT_REGION
+          default_zone: ${SCW_DEFAULT_REGION}-1
+          EOF
+          scw container container list || echo "Scaleway CLI configured"
 
-    - name: Build and push Podman image
-      run: |
-        # Build the image with all tags
-        IFS=',' read -ra TAG_ARRAY <<< "${{ steps.generate_tags.outputs.tags }}"
-        
-        # Build with first tag
-        podman build -t "${TAG_ARRAY[0]}" -f ./Dockerfile .
-        
-        # Tag with additional tags
-        for tag in "${TAG_ARRAY[@]:1}"; do
-          podman tag "${TAG_ARRAY[0]}" "$tag"
-        done
-        
-        # Push all tags
-        for tag in "${TAG_ARRAY[@]}"; do
-          podman push "$tag"
-        done
+      - name: Build container with Nix
+        run: |
+          nix build .#container --print-build-logs --accept-flake-config
 
-    - name: Deploy to Scaleway Container
-      env:
-        SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
-        SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
-        SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
-        SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
-        SCW_DEFAULT_REGION: fr-par
-        SCW_DEFAULT_ZONE: fr-par-1
-      run: |
-        # Install Scaleway CLI
-        curl -o /tmp/scw -L "https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli_2.40.0_linux_amd64"
-        chmod +x /tmp/scw
-        sudo mv /tmp/scw /usr/local/bin/scw
-        
-        # Deploy to Scaleway Serverless Containers - Test deployment
-        CONTAINER_NAME="velib-mcp"
-        IMAGE_TAG="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:main"
-        
-        # Check if container exists
-        if scw container container list name=${CONTAINER_NAME} -o json | jq -e '.[] | select(.name=="'${CONTAINER_NAME}'")' > /dev/null; then
-          echo "Updating existing container..."
-          CONTAINER_ID=$(scw container container list name=${CONTAINER_NAME} -o json | jq -r '.[0].id')
-          scw container container update ${CONTAINER_ID} registry-image=${IMAGE_TAG}
-          scw container container deploy ${CONTAINER_ID}
-        else
-          echo "Creating new container..."
-          scw container container create \
-            name=${CONTAINER_NAME} \
-            registry-image=${IMAGE_TAG} \
-            port=8080 \
-            min-scale=0 \
-            max-scale=1 \
-            memory-limit=512 \
-            cpu-limit=1000
-        fi
+      - name: Load container into podman
+        run: |
+          CONTAINER_PATH=$(nix path-info .#container)
+          skopeo copy "docker-archive:$CONTAINER_PATH" "containers-storage:$CONTAINER_NAME:latest"
+
+      - name: Run container checks
+        run: |
+          chmod +x ./container_checks.sh
+          ./container_checks.sh
+
+      - name: Login to Scaleway Container Registry
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+        run: |
+          echo "$SCW_SECRET_KEY" | podman login $SCALEWAY_REGISTRY -u nologin --password-stdin
+
+      - name: Tag and push container
+        run: |
+          podman tag $CONTAINER_NAME:latest $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
+          podman push $SCALEWAY_REGISTRY/$CONTAINER_NAME:latest
+
+      - name: Deploy to Scaleway
+        env:
+          SCW_ACCESS_KEY: ${{ secrets.SCW_ACCESS_KEY }}
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
+          SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
+          SCW_DEFAULT_REGION: ${{ env.SCALEWAY_REGION }}
+        run: |
+          CONTAINER_ID=$(scw container container list -o json | jq -r "first(.[] | select(.name==\"$SCALEWAY_CONTAINER_NAME\")) | .id")
+
+          if [ -z "$CONTAINER_ID" ] || [ "$CONTAINER_ID" = "null" ]; then
+            echo "ERROR: Could not find Scaleway container named '$SCALEWAY_CONTAINER_NAME'"
+            exit 1
+          fi
+
+          echo "Found container ID: $CONTAINER_ID"
+          scw container container deploy "$CONTAINER_ID"
+
+      - name: Verify deployment
+        env:
+          SCW_SECRET_KEY: ${{ secrets.SCW_SECRET_KEY }}
+          SCW_DEFAULT_ORGANIZATION_ID: ${{ secrets.SCW_DEFAULT_ORGANIZATION_ID }}
+          SCW_DEFAULT_PROJECT_ID: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
+          SCW_DEFAULT_REGION: ${{ env.SCALEWAY_REGION }}
+        run: |
+          sleep 30
+          CONTAINER_ID=$(scw container container list -o json | jq -r "first(.[] | select(.name==\"$SCALEWAY_CONTAINER_NAME\")) | .id")
+          STATUS=$(scw container container get "$CONTAINER_ID" -o json | jq -r '.status')
+          echo "Deployment status: $STATUS"
+          if [ "$STATUS" = "ready" ] || [ "$STATUS" = "created" ]; then
+            echo "Deployment completed successfully"
+          else
+            echo "Deployment status: $STATUS (may still be deploying)"
+          fi
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container**: $CONTAINER_NAME:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: $SCALEWAY_REGISTRY" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container name**: $SCALEWAY_CONTAINER_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region**: $SCALEWAY_REGION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment triggered from commit ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY

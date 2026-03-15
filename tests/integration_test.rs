@@ -14,17 +14,9 @@ fn find_available_port() -> u16 {
 
 #[tokio::test]
 async fn test_claude_installation_workflow() {
-    // Test that we can build the server (simulating `cargo install`)
-    let build_output = Command::new("cargo")
-        .args(["build"])
-        .output()
-        .expect("Failed to build server");
-
-    assert!(build_output.status.success(), "Server build failed");
-
     // Test that the binary runs with custom port
     let port = find_available_port();
-    let mut server = Command::new("./target/debug/velib-mcp")
+    let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
@@ -74,10 +66,11 @@ async fn test_claude_installation_workflow() {
 }
 
 #[tokio::test]
+#[ignore = "requires live network access to Velib API"]
 async fn test_velib_tool_functionality() {
     // Start server
     let port = find_available_port();
-    let mut server = Command::new("./target/debug/velib-mcp")
+    let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
         .spawn()
