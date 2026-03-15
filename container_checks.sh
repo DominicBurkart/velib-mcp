@@ -3,6 +3,7 @@ set -euo pipefail
 
 STATUS=0
 CONTAINER_ID=""
+RUNTIME=${CONTAINER_RUNTIME:-podman}
 
 find_available_port() {
   local port=8080
@@ -23,8 +24,8 @@ find_available_port() {
 cleanup() {
   if [ -n "$CONTAINER_ID" ]; then
     echo "Cleaning up container..."
-    podman stop "$CONTAINER_ID" &> /dev/null || true
-    podman rm "$CONTAINER_ID" &> /dev/null || true
+    $RUNTIME stop "$CONTAINER_ID" &> /dev/null || true
+    $RUNTIME rm "$CONTAINER_ID" &> /dev/null || true
   fi
 }
 
@@ -36,7 +37,7 @@ cd "$SCRIPT_DIR"
 PORT=$(find_available_port)
 echo "Using port $PORT for container checks"
 
-CONTAINER_ID=$(podman run -d -p $PORT:8080 velib-mcp)
+CONTAINER_ID=$($RUNTIME run -d -p $PORT:8080 velib-mcp)
 echo "Container ID: $CONTAINER_ID"
 
 echo "Waiting for HTTP server to be ready..."
@@ -49,9 +50,9 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     break
   fi
 
-  if ! podman ps --filter "id=$CONTAINER_ID" --format "{{.ID}}" | grep -q "${CONTAINER_ID:0:12}"; then
+  if ! $RUNTIME ps --filter "id=$CONTAINER_ID" --format "{{.ID}}" | grep -q "${CONTAINER_ID:0:12}"; then
     echo "ERROR: Container exited prematurely"
-    podman logs "$CONTAINER_ID"
+    $RUNTIME logs "$CONTAINER_ID"
     STATUS=1
     exit $STATUS
   fi
@@ -62,7 +63,7 @@ done
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
   echo "ERROR: HTTP server failed to start within ${MAX_RETRIES} seconds"
-  podman logs "$CONTAINER_ID"
+  $RUNTIME logs "$CONTAINER_ID"
   STATUS=1
   exit $STATUS
 fi
