@@ -29,7 +29,8 @@ jobs:
         run: |
           OS=$(uname -s | tr '[:upper:]' '[:lower:]')
           ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-          curl -o /tmp/scw -fsSL "https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli_${OS}_${ARCH}"
+          VERSION=$(curl -fsSL https://api.github.com/repos/scaleway/scaleway-cli/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          curl -o /tmp/scw -fsSL "https://github.com/scaleway/scaleway-cli/releases/latest/download/scaleway-cli_${VERSION}_${OS}_${ARCH}"
           sudo install -m 755 /tmp/scw /usr/local/bin/scw
           scw version
 
