@@ -125,6 +125,7 @@ async fn test_stations_complete_endpoint_returns_combined_data() {
 
 /// Test that the health endpoint returns real system metrics
 #[tokio::test]
+#[ignore = "requires live network access to Velib API"]
 async fn test_health_endpoint_returns_real_metrics() {
     let router = McpServer::new().router();
 
