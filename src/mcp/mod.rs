@@ -1,3 +1,4 @@
+pub mod documentation;
 pub mod handlers;
 pub mod server;
 pub mod types;

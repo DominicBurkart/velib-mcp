@@ -13,6 +13,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use super::documentation::generate_documentation;
 use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::{Error, Result};
@@ -310,6 +311,15 @@ impl McpServer {
                             },
                             "required": ["origin", "destination"]
                         }
+                    },
+                    {
+                        "name": "get_api_documentation",
+                        "description": "Get comprehensive API documentation including all tools, resources, enums, data types, units, and caching behavior",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        }
                     }
                 ]
             })),
@@ -386,6 +396,17 @@ impl McpServer {
                             ]
                         }))
                     }
+                    "get_api_documentation" => {
+                        let doc = generate_documentation();
+                        Ok(json!({
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&doc)?
+                                }
+                            ]
+                        }))
+                    }
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
             }
@@ -413,6 +434,12 @@ impl McpServer {
                         "uri": "velib://health",
                         "name": "Service Health Status",
                         "description": "System health and data source status information",
+                        "mimeType": "application/json"
+                    },
+                    {
+                        "uri": "velib://documentation",
+                        "name": "API Documentation",
+                        "description": "Comprehensive API schema with all tools, resources, enums, data types, units, and caching behavior",
                         "mimeType": "application/json"
                     }
                 ]
@@ -508,6 +535,7 @@ async fn handle_resource(
                     .into_response()
             }
         },
+        "velib://documentation" => Json(generate_documentation()).into_response(),
         _ => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Resource not found"})),
