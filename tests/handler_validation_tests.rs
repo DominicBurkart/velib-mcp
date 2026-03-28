@@ -5,7 +5,9 @@
 //! *before* any network call is made.
 
 use velib_mcp::mcp::handlers::McpToolHandler;
-use velib_mcp::mcp::types::{FindNearbyStationsInput, PlanBikeJourneyInput, SearchStationsByNameInput};
+use velib_mcp::mcp::types::{
+    FindNearbyStationsInput, PlanBikeJourneyInput, SearchStationsByNameInput,
+};
 use velib_mcp::types::Coordinates;
 
 #[tokio::test]
