@@ -1,6 +1,6 @@
 use velib_mcp::mcp::types::{
-    FindNearbyStationsInput, GeographicBounds, GetStationByCodeInput,
-    JsonRpcError, JsonRpcRequest, SearchStationsByNameInput,
+    FindNearbyStationsInput, GeographicBounds, GetStationByCodeInput, JsonRpcError, JsonRpcRequest,
+    SearchStationsByNameInput,
 };
 use velib_mcp::Coordinates;
 

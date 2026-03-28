@@ -74,10 +74,7 @@ async fn search_by_name_rejects_short_query() {
         limit: 10,
         fuzzy: true,
     };
-    let err = handler()
-        .search_stations_by_name(input)
-        .await
-        .unwrap_err();
+    let err = handler().search_stations_by_name(input).await.unwrap_err();
     assert!(
         err.to_string().contains("too short"),
         "Expected too-short error, got: {err}"
@@ -91,10 +88,7 @@ async fn search_by_name_rejects_limit_too_high() {
         limit: 200, // max 100
         fuzzy: true,
     };
-    let err = handler()
-        .search_stations_by_name(input)
-        .await
-        .unwrap_err();
+    let err = handler().search_stations_by_name(input).await.unwrap_err();
     assert!(
         err.to_string().contains("limit") || err.to_string().contains("Result limit"),
         "Expected limit error, got: {err}"

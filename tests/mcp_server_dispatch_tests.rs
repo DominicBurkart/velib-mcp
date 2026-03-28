@@ -46,10 +46,7 @@ async fn tools_list_returns_all_five_tools() {
     let tools = body["result"]["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 5);
 
-    let names: Vec<&str> = tools
-        .iter()
-        .map(|t| t["name"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"find_nearby_stations"));
     assert!(names.contains(&"get_station_by_code"));
     assert!(names.contains(&"search_stations_by_name"));
@@ -159,8 +156,15 @@ async fn tools_call_missing_name_returns_error() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert!(body["error"].is_object());
+    // The server propagates McpProtocol errors via early return (? operator),
+    // which results in a 500 response with an error string rather than a
+    // JSON-RPC error object.
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let err_msg = body["error"].as_str().unwrap();
+    assert!(
+        err_msg.contains("Missing tool name"),
+        "Expected missing-tool-name error, got: {err_msg}"
+    );
 }
 
 #[tokio::test]
@@ -182,17 +186,16 @@ async fn response_preserves_request_id() {
 
 #[tokio::test]
 async fn health_endpoint_returns_healthy() {
-    let router = McpServer::new().router();
+    // The /health route is on Server, not McpServer. We need the full server router.
+    let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let server = velib_mcp::Server::new(addr);
+    let router = server.router();
+
     let request = Request::builder()
         .uri("/health")
         .method("GET")
         .body(Body::empty())
         .unwrap();
-
-    // The /health route is on Server, not McpServer. We need the full server router.
-    let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let server = velib_mcp::Server::new(addr);
-    let router = server.router();
 
     let response = router.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);

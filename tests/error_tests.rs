@@ -35,7 +35,10 @@ fn all_error_variants_have_valid_mcp_codes() {
     for err in &variants {
         let code = err.mcp_error_code();
         // JSON-RPC error codes are negative
-        assert!(code < 0, "Error code for {err} should be negative, got {code}");
+        assert!(
+            code < 0,
+            "Error code for {err} should be negative, got {code}"
+        );
     }
 }
 
@@ -95,11 +98,7 @@ fn invalid_params_errors_use_correct_code() {
     ];
 
     for err in &params_errors {
-        assert_eq!(
-            err.mcp_error_code(),
-            -32602,
-            "Expected -32602 for {err}"
-        );
+        assert_eq!(err.mcp_error_code(), -32602, "Expected -32602 for {err}");
     }
 }
 

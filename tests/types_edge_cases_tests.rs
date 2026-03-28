@@ -170,7 +170,11 @@ fn validate_rejects_coords_outside_paris() {
 
 #[test]
 fn station_status_serde_round_trip() {
-    for status in [StationStatus::Open, StationStatus::Closed, StationStatus::Maintenance] {
+    for status in [
+        StationStatus::Open,
+        StationStatus::Closed,
+        StationStatus::Maintenance,
+    ] {
         let json = serde_json::to_string(&status).unwrap();
         let back: StationStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(back, status);
