@@ -290,9 +290,7 @@ impl RetryableHttpClient {
             warn!(
                 "Rate limited (429) for {}{}",
                 url,
-                retry_after.map_or_else(String::new, |seconds| format!(
-                    ", retry after {seconds}s"
-                ))
+                retry_after.map_or_else(String::new, |seconds| format!(", retry after {seconds}s"))
             );
             return Err(create_rate_limited_error(&response));
         }
