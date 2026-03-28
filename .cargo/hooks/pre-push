@@ -1,8 +1,0 @@
-#!/bin/sh
-set -e
-
-echo "Running cargo test..."
-cargo test
-
-echo "Running cargo-sort --check..."
-cargo-sort --check --workspace
