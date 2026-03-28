@@ -128,15 +128,9 @@ mod tests {
     #[test]
     fn mcp_error_code_internal_variants() {
         let cases: Vec<(Error, i32)> = vec![
-            (
-                Error::McpProtocol("protocol issue".to_string()),
-                -32603,
-            ),
+            (Error::McpProtocol("protocol issue".to_string()), -32603),
             (Error::Cache("cache miss".to_string()), -32603),
-            (
-                Error::Internal(anyhow::anyhow!("internal failure")),
-                -32603,
-            ),
+            (Error::Internal(anyhow::anyhow!("internal failure")), -32603),
         ];
 
         for (error, expected_code) in cases {
@@ -172,8 +166,7 @@ mod tests {
 
     #[test]
     fn mcp_error_code_json_parse() {
-        let json_err: std::result::Result<serde_json::Value, _> =
-            serde_json::from_str("not json");
+        let json_err: std::result::Result<serde_json::Value, _> = serde_json::from_str("not json");
         let error = Error::Json(json_err.unwrap_err());
         assert_eq!(error.mcp_error_code(), -32700);
     }
@@ -218,16 +211,10 @@ mod tests {
                 },
                 "station_not_found",
             ),
-            (
-                Error::McpProtocol("err".to_string()),
-                "mcp_protocol_error",
-            ),
+            (Error::McpProtocol("err".to_string()), "mcp_protocol_error"),
             (Error::Validation("err".to_string()), "validation_error"),
             (Error::Cache("err".to_string()), "cache_error"),
-            (
-                Error::Internal(anyhow::anyhow!("err")),
-                "internal_error",
-            ),
+            (Error::Internal(anyhow::anyhow!("err")), "internal_error"),
         ];
 
         for (error, expected_type) in cases {

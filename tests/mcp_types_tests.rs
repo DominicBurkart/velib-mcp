@@ -1,8 +1,8 @@
 //! Tests for MCP types: GeographicBounds, JsonRpc serde, and error conversion.
 
 use velib_mcp::mcp::types::{
-    GeographicBounds, JsonRpcError, JsonRpcRequest, JsonRpcResponse,
-    GetStationByCodeOutput, FindNearbyStationsOutput, SearchMetadata,
+    FindNearbyStationsOutput, GeographicBounds, GetStationByCodeOutput, JsonRpcError,
+    JsonRpcRequest, JsonRpcResponse, SearchMetadata,
 };
 use velib_mcp::types::Coordinates;
 
@@ -51,7 +51,7 @@ fn geographic_bounds_contains_point_on_boundary() {
     assert!(bounds.contains(&Coordinates::new(48.80, 2.35))); // south edge
     assert!(bounds.contains(&Coordinates::new(48.85, 2.40))); // east edge
     assert!(bounds.contains(&Coordinates::new(48.85, 2.30))); // west edge
-    // Corner
+                                                              // Corner
     assert!(bounds.contains(&Coordinates::new(48.90, 2.40)));
 }
 
@@ -139,7 +139,10 @@ fn jsonrpc_error_from_all_error_variants_has_correct_structure() {
         // All converted errors should have data with error_type
         assert!(rpc_err.data.is_some(), "Error data should be present");
         let data = rpc_err.data.unwrap();
-        assert!(data["error_type"].is_string(), "error_type should be a string");
+        assert!(
+            data["error_type"].is_string(),
+            "error_type should be a string"
+        );
         // Message should not be empty
         assert!(!rpc_err.message.is_empty());
     }
