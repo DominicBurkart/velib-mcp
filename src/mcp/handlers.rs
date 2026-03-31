@@ -23,6 +23,35 @@ const PARIS_CITY_HALL: Coordinates = Coordinates {
     longitude: 2.3514,
 };
 
+/// Find stations near a point, filtering by distance and a custom predicate,
+/// sorted by distance and truncated to `limit` results.
+fn find_stations_within_radius(
+    stations: &[VelibStation],
+    origin: &Coordinates,
+    radius_meters: u32,
+    limit: usize,
+    predicate: impl Fn(&VelibStation) -> bool,
+) -> Vec<StationWithDistance> {
+    let mut results: Vec<StationWithDistance> = stations
+        .iter()
+        .filter_map(|station| {
+            let distance = origin.distance_to(&station.reference.coordinates) as u32;
+            if distance <= radius_meters && predicate(station) {
+                Some(StationWithDistance {
+                    station: station.clone(),
+                    straight_line_distance_meters: distance,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    results.sort_by_key(|s| s.straight_line_distance_meters);
+    results.truncate(limit);
+    results
+}
+
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
 }
@@ -88,43 +117,22 @@ impl McpToolHandler {
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Filter stations by distance and bike type
-        let mut nearby_stations: Vec<StationWithDistance> = all_stations
-            .into_iter()
-            .filter_map(|station| {
-                let distance = query_point.distance_to(&station.reference.coordinates) as u32;
-
-                // Check if within search radius
-                if distance <= input.radius_meters {
-                    // Check if station has the requested bike type (if specified)
-                    let has_requested_bikes = match &input.availability_filter {
-                        Some(filter) => match &filter.bike_type {
-                            Some(bike_type) => station.has_available_bikes(bike_type),
-                            None => true,
-                        },
-                        None => true, // No filter specified
-                    };
-
-                    if has_requested_bikes && station.is_operational() {
-                        Some(StationWithDistance {
-                            station,
-                            straight_line_distance_meters: distance,
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Sort by distance
-        nearby_stations.sort_by_key(|s| s.straight_line_distance_meters);
-
-        // Limit results
-        nearby_stations.truncate(input.limit as usize);
-
-        let stations = nearby_stations;
+        let stations = find_stations_within_radius(
+            &all_stations,
+            &query_point,
+            input.radius_meters,
+            input.limit as usize,
+            |station| {
+                let has_requested_bikes = match &input.availability_filter {
+                    Some(filter) => match &filter.bike_type {
+                        Some(bike_type) => station.has_available_bikes(bike_type),
+                        None => true,
+                    },
+                    None => true,
+                };
+                has_requested_bikes && station.is_operational()
+            },
+        );
 
         let search_time = start_time.elapsed().as_millis() as u64;
 
@@ -312,57 +320,24 @@ impl McpToolHandler {
         let preferences = input.preferences.unwrap_or_default();
 
         // Find pickup stations near origin
-        let mut pickup_candidates: Vec<StationWithDistance> = all_stations
-            .iter()
-            .filter_map(|station| {
-                let distance = input.origin.distance_to(&station.reference.coordinates) as u32;
-
-                if distance <= preferences.max_walk_distance
-                    && station.is_operational()
-                    && station.has_available_bikes(&preferences.bike_type)
-                {
-                    Some(StationWithDistance {
-                        station: station.clone(),
-                        straight_line_distance_meters: distance,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        pickup_candidates.sort_by_key(|s| s.straight_line_distance_meters);
-        pickup_candidates.truncate(3);
+        let pickup_stations = find_stations_within_radius(
+            &all_stations,
+            &input.origin,
+            preferences.max_walk_distance,
+            3,
+            |station| {
+                station.is_operational() && station.has_available_bikes(&preferences.bike_type)
+            },
+        );
 
         // Find dropoff stations near destination
-        let mut dropoff_candidates: Vec<StationWithDistance> = all_stations
-            .iter()
-            .filter_map(|station| {
-                let distance = input
-                    .destination
-                    .distance_to(&station.reference.coordinates)
-                    as u32;
-
-                if distance <= preferences.max_walk_distance
-                    && station.is_operational()
-                    && station.has_available_docks(1)
-                // At least 1 dock available
-                {
-                    Some(StationWithDistance {
-                        station: station.clone(),
-                        straight_line_distance_meters: distance,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        dropoff_candidates.sort_by_key(|s| s.straight_line_distance_meters);
-        dropoff_candidates.truncate(3);
-
-        let pickup_stations = pickup_candidates;
-        let dropoff_stations = dropoff_candidates;
+        let dropoff_stations = find_stations_within_radius(
+            &all_stations,
+            &input.destination,
+            preferences.max_walk_distance,
+            3,
+            |station| station.is_operational() && station.has_available_docks(1),
+        );
 
         // Generate journey recommendations
         let mut recommendations = Vec::new();
