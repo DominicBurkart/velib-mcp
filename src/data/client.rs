@@ -319,10 +319,36 @@ impl VelibDataClient {
         self.realtime_cache.cleanup_expired().await;
     }
 
-    /// Get cache statistics
-    pub async fn cache_stats(&self) -> (usize, usize) {
+    /// Get cache statistics: (reference_cache_size, realtime_cache_size, hit_rate).
+    ///
+    /// `hit_rate` is the combined ratio of successful reads across both caches.
+    /// Returns 0.0 when no lookups have been performed yet.
+    pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
-        (reference_size, realtime_size)
+
+        // Combine hit/miss counts from both caches for a single overall rate.
+        let ref_rate = self.reference_cache.hit_rate();
+        let rt_rate = self.realtime_cache.hit_rate();
+
+        // Weight each cache's rate by its share of total lookups so that the
+        // combined rate is accurate even when the two caches have different
+        // call frequencies.
+        use std::sync::atomic::Ordering;
+        let ref_hits = self.reference_cache.hits.load(Ordering::Relaxed);
+        let ref_misses = self.reference_cache.misses.load(Ordering::Relaxed);
+        let rt_hits = self.realtime_cache.hits.load(Ordering::Relaxed);
+        let rt_misses = self.realtime_cache.misses.load(Ordering::Relaxed);
+        let total = ref_hits + ref_misses + rt_hits + rt_misses;
+        let hit_rate = if total == 0 {
+            0.0
+        } else {
+            (ref_hits + rt_hits) as f64 / total as f64
+        };
+
+        // Suppress unused-variable warnings for the per-cache rates computed above.
+        let _ = (ref_rate, rt_rate);
+
+        (reference_size, realtime_size, hit_rate)
     }
 }
