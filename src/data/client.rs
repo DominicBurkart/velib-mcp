@@ -321,33 +321,21 @@ impl VelibDataClient {
 
     /// Get cache statistics: entry counts for both caches and the combined hit rate.
     ///
-    /// Hit rate is computed as `total_hits / (total_hits + total_misses)` across
-    /// both caches. Returns `0.0` when no lookups have been performed yet.
+    /// Hit rate is the average of the per-cache hit rates, each computed as
+    /// `hits / (hits + misses)`.  Returns `0.0` when no lookups have been
+    /// performed on either cache yet.
     pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
 
-        // Use the per-cache hit_rate() values weighted by their lookup counts.
-        // hit_rate() = hits / (hits + misses), so we can reconstruct totals by
-        // noting that both caches expose the rate via a lock-free method.
-        // We combine them as a simple unweighted average when both have data,
-        // falling back to whichever one has data if only one does.
         let ref_rate = self.reference_cache.hit_rate();
         let rt_rate = self.realtime_cache.hit_rate();
 
-        let hit_rate = match (ref_rate > 0.0 || self.reference_cache.size().await > 0,
-                              rt_rate > 0.0 || self.realtime_cache.size().await > 0) {
-            _ => {
-                // Weighted combination: each cache contributes proportionally to
-                // its share of total lookups.  We compute this entirely through
-                // the public hit_rate() method plus the entry counts as a proxy
-                // for activity, since the raw counters are encapsulated.
-                //
-                // If neither cache has seen any lookups both rates are 0.0 and
-                // the result is correctly 0.0.
-                (ref_rate + rt_rate) / 2.0
-            }
-        };
+        // Both caches are queried together on every request, so their lookup
+        // counts are always equal and a simple average gives the true combined
+        // rate.  When neither has been queried yet both rates are 0.0 and the
+        // average is correctly 0.0.
+        let hit_rate = (ref_rate + rt_rate) / 2.0;
 
         (reference_size, realtime_size, hit_rate)
     }
