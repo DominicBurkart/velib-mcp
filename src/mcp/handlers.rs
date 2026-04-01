@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
+const MAX_SEARCH_QUERY_LEN: usize = 100;
 
 // Paris City Hall coordinates - reference point for service area validation
 const PARIS_CITY_HALL: Coordinates = Coordinates {
@@ -161,7 +162,15 @@ impl McpToolHandler {
         let start_time = Instant::now();
 
         if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+            return Err(Error::Validation("Search query too short".to_string()));
+        }
+
+        if input.query.len() > MAX_SEARCH_QUERY_LEN {
+            return Err(Error::Validation(format!(
+                "Search query too long: {} characters (max: {})",
+                input.query.len(),
+                MAX_SEARCH_QUERY_LEN
+            )));
         }
 
         if input.limit > MAX_RESULT_LIMIT {
@@ -403,8 +412,10 @@ impl McpToolHandler {
         data_client.cleanup_cache().await;
     }
 
-    /// Get cache statistics from the data client
-    pub async fn cache_stats(&self) -> (usize, usize) {
+    /// Get cache statistics from the data client.
+    ///
+    /// Returns `(reference_cache_size, realtime_cache_size, hit_rate)`.
+    pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let data_client = self.data_client.read().await;
         data_client.cache_stats().await
     }
