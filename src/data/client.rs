@@ -67,10 +67,9 @@ impl VelibDataClient {
     }
 
     /// Create a client pre-seeded with in-memory station data. No network calls
-    /// will be made because the data is placed directly into the caches.
-    /// Intended for unit tests only.
-    #[must_use]
-    pub fn with_preloaded_stations(stations: Vec<VelibStation>) -> Self {
+    /// will be made because the data is inserted directly into the caches before
+    /// the first handler call.  Intended for unit tests only.
+    pub async fn from_stations(stations: Vec<VelibStation>) -> Self {
         let client = Self::new();
 
         // Split into reference data and real-time status maps matching the
@@ -86,35 +85,14 @@ impl VelibDataClient {
             reference_stations.push(station.reference);
         }
 
-        // We need to populate the caches synchronously. The caches are protected
-        // by async RwLocks, so we use `tokio::runtime::Handle::current()` when
-        // called inside an async context, or spin up a temporary runtime otherwise.
-        let populate = async {
-            client
-                .reference_cache
-                .insert("all_reference_stations".to_string(), reference_stations)
-                .await;
-            client
-                .realtime_cache
-                .insert("all_realtime_status".to_string(), realtime_map)
-                .await;
-        };
-
-        // Run the async population. This works both inside a Tokio runtime (tests
-        // use `#[tokio::test]`) and in a plain sync context.
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                // Already inside a runtime – use `block_in_place` to avoid
-                // blocking the executor thread pool while holding the future.
-                tokio::task::block_in_place(|| handle.block_on(populate));
-            }
-            Err(_) => {
-                // No runtime active; build a temporary one.
-                tokio::runtime::Runtime::new()
-                    .expect("failed to build temporary tokio runtime")
-                    .block_on(populate);
-            }
-        }
+        client
+            .reference_cache
+            .insert("all_reference_stations".to_string(), reference_stations)
+            .await;
+        client
+            .realtime_cache
+            .insert("all_realtime_status".to_string(), realtime_map)
+            .await;
 
         client
     }
