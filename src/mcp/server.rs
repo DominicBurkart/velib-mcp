@@ -256,7 +256,7 @@ impl McpServer {
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "query": {"type": "string", "minLength": 2},
+                                "query": {"type": "string", "minLength": 2, "maxLength": 100},
                                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
@@ -582,16 +582,9 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) -> Result<Value> {
     let uptime_seconds = start_time.elapsed().as_secs();
 
-    // Get real cache statistics
-    let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
+    // Get real cache statistics including the measured hit rate.
+    let (reference_cache_size, realtime_cache_size, hit_rate) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
-
-    // Calculate hit rate based on cache usage (simplified)
-    let hit_rate = if total_entries > 0 {
-        0.75 + (total_entries as f64 / 2000.0) * 0.2
-    } else {
-        0.0
-    };
 
     // Fetch stations to compute real lag from most recent station last_update timestamp
     let (realtime_status, reference_status, lag_seconds, most_recent_update) =
@@ -625,7 +618,7 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
             }
         },
         "cache_stats": {
-            "hit_rate": hit_rate.min(1.0),
+            "hit_rate": hit_rate,
             "entries": total_entries,
             "reference_cache_size": reference_cache_size,
             "realtime_cache_size": realtime_cache_size
