@@ -1,5 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -26,6 +27,8 @@ impl<T> CacheEntry<T> {
 pub struct InMemoryCache<K, V> {
     entries: Arc<RwLock<HashMap<K, CacheEntry<V>>>>,
     default_ttl: Duration,
+    hits: Arc<AtomicU64>,
+    misses: Arc<AtomicU64>,
 }
 
 impl<K, V> InMemoryCache<K, V>
@@ -38,6 +41,8 @@ where
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
             default_ttl,
+            hits: Arc::new(AtomicU64::new(0)),
+            misses: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -45,10 +50,26 @@ where
         let entries = self.entries.read().await;
         if let Some(entry) = entries.get(key) {
             if !entry.is_expired() {
+                self.hits.fetch_add(1, Ordering::Relaxed);
                 return Some(entry.data.clone());
             }
         }
+        self.misses.fetch_add(1, Ordering::Relaxed);
         None
+    }
+
+    /// Returns the cache hit rate as a value in [0.0, 1.0].
+    /// Returns 0.0 when no lookups have been performed yet.
+    #[must_use]
+    pub fn hit_rate(&self) -> f64 {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        if total == 0 {
+            0.0
+        } else {
+            hits as f64 / total as f64
+        }
     }
 
     pub async fn insert(&self, key: K, value: V) {
