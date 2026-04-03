@@ -17,12 +17,6 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
-
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
 }
@@ -48,6 +42,14 @@ impl McpToolHandler {
         }
     }
 
+    /// Acquire a write lock on the data client and fetch all stations with
+    /// real-time data.  Every handler that needs live station data should call
+    /// this instead of repeating the lock + fetch pattern inline.
+    async fn fetch_all_stations(&self) -> Result<Vec<VelibStation>> {
+        let mut data_client = self.data_client.write().await;
+        data_client.get_all_stations(true).await
+    }
+
     pub async fn find_nearby_stations(
         &self,
         input: FindNearbyStationsInput,
@@ -70,22 +72,10 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-        if !query_point.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.latitude,
-                longitude: input.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall
-        if !query_point.is_within_paris_service_area() {
-            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        query_point.validate_for_velib_service()?;
 
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_all_stations().await?;
 
         // Filter stations by distance and bike type
         let mut nearby_stations: Vec<StationWithDistance> = all_stations
@@ -172,8 +162,7 @@ impl McpToolHandler {
         }
 
         // Fetch live station data and search by name
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_all_stations().await?;
 
         let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
         let mut matching_stations: Vec<VelibStation> = all_stations
@@ -218,8 +207,7 @@ impl McpToolHandler {
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_all_stations().await?;
 
         // Filter stations within the specified bounds
         let area_stations: Vec<&VelibStation> = all_stations
@@ -279,34 +267,11 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        if !input.origin.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.origin.latitude,
-                longitude: input.origin.longitude,
-            });
-        }
-
-        if !input.destination.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.destination.latitude,
-                longitude: input.destination.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall for both origin and destination
-        if !input.origin.is_within_paris_service_area() {
-            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
-
-        if !input.destination.is_within_paris_service_area() {
-            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        input.origin.validate_for_velib_service()?;
+        input.destination.validate_for_velib_service()?;
 
         // Find nearby stations for pickup and dropoff using live data
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_all_stations().await?;
 
         // Get preferences or use defaults
         let preferences = input.preferences.unwrap_or_default();
