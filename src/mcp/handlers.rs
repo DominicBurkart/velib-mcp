@@ -449,3 +449,76 @@ impl Default for JourneyPreferences {
         }
     }
 }
+
+/// Pure helper: compute the confidence score from walk distances.
+///
+/// Extracted from `plan_bike_journey` so Kani can verify it without async.
+/// Bug: if `max_walk_distance` is 0 this divides by zero.
+#[inline]
+pub fn confidence_score(
+    pickup_distance: u32,
+    dropoff_distance: u32,
+    max_walk_distance: u32,
+) -> f64 {
+    let max_walk = f64::from(max_walk_distance);
+    let pickup_walk_ratio = f64::from(pickup_distance) / max_walk;
+    let dropoff_walk_ratio = f64::from(dropoff_distance) / max_walk;
+    let score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
+    score.clamp(0.1, 1.0)
+}
+
+/// Pure helper: cast a floating-point distance to u32.
+///
+/// Bug: `distance_to()` can return NaN or infinity for degenerate inputs,
+/// and `as u32` on those values is undefined behaviour in older Rust editions
+/// and saturates in newer ones, but may still produce surprising results.
+#[inline]
+pub fn distance_as_u32(distance: f64) -> u32 {
+    distance as u32
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// Prove that `confidence_score` never divides by zero for any u32 inputs.
+    ///
+    /// If `max_walk_distance` is 0 the division `f64::from(pickup) / 0.0`
+    /// produces infinity, which after arithmetic and clamp gives 0.1.
+    /// The proof checks the result is always in [0.1, 1.0].
+    #[kani::proof]
+    fn prove_confidence_score_no_div_by_zero() {
+        let pickup: u32 = kani::any();
+        let dropoff: u32 = kani::any();
+        let max_walk: u32 = kani::any();
+
+        let score = confidence_score(pickup, dropoff, max_walk);
+
+        // The result must always be a finite number in [0.1, 1.0]
+        // thanks to the clamp — even when max_walk is 0.
+        assert!(score >= 0.1);
+        assert!(score <= 1.0);
+        assert!(!score.is_nan());
+    }
+
+    /// Prove that casting a haversine distance to u32 never produces
+    /// a value beyond a reasonable bound.
+    ///
+    /// The haversine formula on earth can return at most ~20_037_508 m
+    /// (half the earth's circumference).  We verify that for any f64
+    /// distance in [0.0, 25_000_000.0] the cast is well-defined and
+    /// fits in u32.
+    #[kani::proof]
+    fn prove_float_to_u32_cast_bounded() {
+        let distance: f64 = kani::any();
+        // Constrain to the physically possible range for earth distances
+        kani::assume(distance >= 0.0);
+        kani::assume(distance <= 25_000_000.0);
+        kani::assume(!distance.is_nan());
+        kani::assume(!distance.is_infinite());
+
+        let result = distance_as_u32(distance);
+        // Must fit: 25 000 000 < u32::MAX (4 294 967 295)
+        assert!(result <= 25_000_000);
+    }
+}

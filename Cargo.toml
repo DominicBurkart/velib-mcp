@@ -8,6 +8,9 @@ description = "MCP server for Velib Paris bike sharing data"
 keywords = ["mcp", "velib", "paris", "bike-sharing", "transport"]
 categories = ["api-bindings", "web-programming"]
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

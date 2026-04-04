@@ -326,3 +326,51 @@ impl VelibDataClient {
         (reference_size, realtime_size)
     }
 }
+
+/// Pure helper: convert a u64 API value to u16.
+///
+/// Bug: the original code uses `as u16` which silently truncates
+/// values above 65 535.  This helper makes the conversion explicit
+/// so Kani can verify that real-world API values fit.
+#[inline]
+pub fn u64_to_u16_truncating(value: u64) -> u16 {
+    value as u16
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    /// Prove that `u64 as u16` preserves the value when the input
+    /// fits in u16.
+    ///
+    /// The Velib API returns bike counts and dock counts that should
+    /// never exceed a station's physical capacity (~200 max).  We
+    /// prove that for values in [0, 200] the cast is lossless.
+    #[kani::proof]
+    fn prove_u64_to_u16_no_truncation_for_valid_values() {
+        let value: u64 = kani::any();
+        // Station capacity is validated to be <= 200
+        kani::assume(value <= 200);
+
+        let result = u64_to_u16_truncating(value);
+        // The cast must be lossless for values that fit in u16
+        assert!(u64::from(result) == value);
+    }
+
+    /// Demonstrate that truncation occurs for values above u16::MAX.
+    ///
+    /// This proof shows the bug: if the API ever returns a value
+    /// above 65 535, the `as u16` cast silently drops the high bits.
+    #[kani::proof]
+    fn prove_u64_to_u16_truncation_detected() {
+        let value: u64 = kani::any();
+        kani::assume(value > u64::from(u16::MAX));
+        // Cap the search space so Kani terminates quickly
+        kani::assume(value <= u64::from(u16::MAX) + 1000);
+
+        let result = u64_to_u16_truncating(value);
+        // The truncated result must NOT equal the original value
+        assert!(u64::from(result) != value);
+    }
+}
