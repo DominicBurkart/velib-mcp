@@ -67,7 +67,7 @@ impl VelibDataClient {
     }
 
     /// Fetch all station reference data
-    pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
+    pub async fn fetch_reference_stations(&self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
 
         // Check cache first
@@ -125,7 +125,7 @@ impl VelibDataClient {
     }
 
     /// Fetch real-time station status data
-    pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
+    pub async fn fetch_realtime_status(&self) -> Result<HashMap<String, RealTimeStatus>> {
         const CACHE_KEY: &str = "all_realtime_status";
 
         // Check cache first
@@ -183,7 +183,7 @@ impl VelibDataClient {
     }
 
     /// Get all stations with optional real-time data
-    pub async fn get_all_stations(&mut self, include_realtime: bool) -> Result<Vec<VelibStation>> {
+    pub async fn get_all_stations(&self, include_realtime: bool) -> Result<Vec<VelibStation>> {
         let reference_stations = self.fetch_reference_stations().await?;
 
         if !include_realtime {
@@ -211,7 +211,7 @@ impl VelibDataClient {
 
     /// Get a specific station by code
     pub async fn get_station_by_code(
-        &mut self,
+        &self,
         station_code: &str,
         include_realtime: bool,
     ) -> Result<Option<VelibStation>> {
