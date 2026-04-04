@@ -84,3 +84,89 @@ where
         entries.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cache_insert_and_retrieve() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key".to_string(), "value".to_string()).await;
+        let result = cache.get(&"key".to_string()).await;
+        assert_eq!(result, Some("value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_miss_for_missing_key() {
+        let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::seconds(60));
+        let result = cache.get(&"nonexistent".to_string()).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_cache_value_expires_after_ttl() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::milliseconds(100));
+        cache.insert("key".to_string(), "hello".to_string()).await;
+
+        // Value should be present immediately
+        assert!(cache.get(&"key".to_string()).await.is_some());
+
+        // Wait for TTL to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Value should now be gone
+        let result = cache.get(&"key".to_string()).await;
+        assert_eq!(result, None, "cache entry should have expired");
+    }
+
+    #[tokio::test]
+    async fn test_cache_cleanup_removes_expired_entries() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::milliseconds(100));
+
+        cache.insert("expired".to_string(), "old".to_string()).await;
+        // Insert a second entry with a longer TTL
+        cache
+            .insert_with_ttl("fresh".to_string(), "new".to_string(), Duration::seconds(60))
+            .await;
+
+        // Wait for the short-TTL entry to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        assert_eq!(cache.size().await, 2); // Both entries still present before cleanup
+
+        cache.cleanup_expired().await;
+
+        assert_eq!(cache.size().await, 1, "expired entry should have been removed");
+        assert_eq!(
+            cache.get(&"fresh".to_string()).await,
+            Some("new".to_string()),
+            "non-expired entry should still be present"
+        );
+        assert_eq!(
+            cache.get(&"expired".to_string()).await,
+            None,
+            "expired entry should not be retrievable"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cache_overwrite_existing_key() {
+        let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1u32).await;
+        cache.insert("k".to_string(), 2u32).await;
+        assert_eq!(cache.get(&"k".to_string()).await, Some(2u32));
+    }
+
+    #[tokio::test]
+    async fn test_cache_remove() {
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), "v".to_string()).await;
+        let removed = cache.remove(&"k".to_string()).await;
+        assert_eq!(removed, Some("v".to_string()));
+        assert_eq!(cache.get(&"k".to_string()).await, None);
+    }
+}

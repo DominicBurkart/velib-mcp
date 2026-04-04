@@ -1,3 +1,5 @@
+use std::time::Duration as StdDuration;
+
 use unicode_normalization::UnicodeNormalization;
 
 use crate::data::VelibDataClient;
@@ -36,9 +38,29 @@ impl Default for McpToolHandler {
 impl McpToolHandler {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            data_client: Arc::new(RwLock::new(VelibDataClient::new())),
-        }
+        let data_client = Arc::new(RwLock::new(VelibDataClient::new()));
+
+        // Spawn a background task to clean up expired cache entries every 5 minutes.
+        // We hold only a weak reference so that the task does not prevent the Arc from
+        // being dropped when the handler is no longer used.
+        let weak = Arc::downgrade(&data_client);
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(StdDuration::from_secs(5 * 60));
+            interval.tick().await; // skip the immediate first tick
+            loop {
+                interval.tick().await;
+                match weak.upgrade() {
+                    Some(client) => {
+                        let guard = client.read().await;
+                        guard.cleanup_cache().await;
+                    }
+                    None => break, // handler has been dropped; exit task
+                }
+            }
+        });
+
+        Self { data_client }
     }
 
     #[must_use]
@@ -84,7 +106,7 @@ impl McpToolHandler {
         }
 
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Filter stations by distance and bike type
@@ -143,7 +165,7 @@ impl McpToolHandler {
         &self,
         input: GetStationByCodeInput,
     ) -> Result<GetStationByCodeOutput> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let station = data_client
             .get_station_by_code(&input.station_code, true)
             .await?;
@@ -172,7 +194,7 @@ impl McpToolHandler {
         }
 
         // Fetch live station data and search by name
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
@@ -218,7 +240,7 @@ impl McpToolHandler {
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Filter stations within the specified bounds
@@ -305,7 +327,7 @@ impl McpToolHandler {
         }
 
         // Find nearby stations for pickup and dropoff using live data
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Get preferences or use defaults
@@ -411,7 +433,7 @@ impl McpToolHandler {
 
     /// Get reference stations for resource endpoints
     pub async fn get_reference_stations(&self) -> Result<Vec<crate::types::StationReference>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.fetch_reference_stations().await
     }
 
@@ -419,7 +441,7 @@ impl McpToolHandler {
     pub async fn get_realtime_status(
         &self,
     ) -> Result<std::collections::HashMap<String, crate::types::RealTimeStatus>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.fetch_realtime_status().await
     }
 
@@ -428,13 +450,13 @@ impl McpToolHandler {
         &self,
         include_realtime: bool,
     ) -> Result<Vec<crate::types::VelibStation>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.get_all_stations(include_realtime).await
     }
 
     /// Test connectivity to data sources for health checks
     pub async fn test_connectivity(&self) -> Result<()> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         // Simple connectivity test by fetching reference data
         data_client.get_all_stations(false).await?;
         Ok(())
