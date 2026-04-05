@@ -66,37 +66,6 @@ impl VelibDataClient {
         }
     }
 
-    /// Create a client pre-seeded with in-memory station data. No network calls
-    /// will be made because the data is inserted directly into the caches before
-    /// the first handler call.  Intended for unit tests only.
-    pub async fn from_stations(stations: Vec<VelibStation>) -> Self {
-        let client = Self::new();
-
-        // Split into reference data and real-time status maps matching the
-        // cache keys used by `fetch_reference_stations` / `fetch_realtime_status`.
-        let mut reference_stations: Vec<StationReference> = Vec::with_capacity(stations.len());
-        let mut realtime_map: HashMap<String, RealTimeStatus> =
-            HashMap::with_capacity(stations.len());
-
-        for station in stations {
-            if let Some(rt) = station.real_time {
-                realtime_map.insert(station.reference.station_code.clone(), rt);
-            }
-            reference_stations.push(station.reference);
-        }
-
-        client
-            .reference_cache
-            .insert("all_reference_stations".to_string(), reference_stations)
-            .await;
-        client
-            .realtime_cache
-            .insert("all_realtime_status".to_string(), realtime_map)
-            .await;
-
-        client
-    }
-
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
@@ -355,5 +324,26 @@ impl VelibDataClient {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
         (reference_size, realtime_size)
+    }
+
+    /// Seed the reference-station cache with pre-built data, bypassing the network.
+    /// Only available in test builds so it cannot be called in production.
+    #[cfg(test)]
+    pub async fn seed_for_testing(&self, stations: Vec<StationReference>) {
+        self.reference_cache
+            .insert("all_reference_stations".to_string(), stations)
+            .await;
+    }
+
+    /// Seed the real-time cache with pre-built data, bypassing the network.
+    /// Only available in test builds so it cannot be called in production.
+    #[cfg(test)]
+    pub async fn seed_realtime_for_testing(
+        &self,
+        status_map: HashMap<String, RealTimeStatus>,
+    ) {
+        self.realtime_cache
+            .insert("all_realtime_status".to_string(), status_map)
+            .await;
     }
 }
