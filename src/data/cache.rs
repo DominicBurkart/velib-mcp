@@ -84,3 +84,74 @@ where
         entries.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration as StdDuration;
+
+    #[tokio::test]
+    async fn insert_and_get_returns_value() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::minutes(5));
+        cache.insert("key1".to_string(), "hello".to_string()).await;
+        let result = cache.get(&"key1".to_string()).await;
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[tokio::test]
+    async fn expired_entry_returns_none() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::minutes(5));
+        // Insert with a 1ms TTL
+        cache
+            .insert_with_ttl(
+                "key_exp".to_string(),
+                "value".to_string(),
+                Duration::milliseconds(1),
+            )
+            .await;
+        // Wait long enough for expiry
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        let result = cache.get(&"key_exp".to_string()).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn cleanup_removes_expired() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::minutes(5));
+        cache
+            .insert_with_ttl(
+                "stale".to_string(),
+                "data".to_string(),
+                Duration::milliseconds(1),
+            )
+            .await;
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        cache.cleanup_expired().await;
+        assert_eq!(cache.size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn clear_empties_cache() {
+        let cache: InMemoryCache<String, i32> =
+            InMemoryCache::new(Duration::minutes(5));
+        cache.insert("a".to_string(), 1).await;
+        cache.insert("b".to_string(), 2).await;
+        cache.insert("c".to_string(), 3).await;
+        assert_eq!(cache.size().await, 3);
+        cache.clear().await;
+        assert_eq!(cache.size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn size_reflects_inserts() {
+        let cache: InMemoryCache<u32, &str> =
+            InMemoryCache::new(Duration::minutes(5));
+        for i in 0..7u32 {
+            cache.insert(i, "v").await;
+        }
+        assert_eq!(cache.size().await, 7);
+    }
+}
