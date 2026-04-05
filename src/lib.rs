@@ -9,4 +9,15 @@ pub use data::VelibDataClient;
 pub use error::{Error, Result};
 pub use mcp::{McpServer, McpToolHandler};
 pub use server::{parse_server_address, Server};
-pub use types::*;
+pub use types::{
+    BikeAvailability,
+    BikeTypeFilter,
+    Coordinates,
+    DataFreshness,
+    DataSource,
+    RealTimeStatus,
+    ServiceCapabilities,
+    StationReference,
+    StationStatus,
+    VelibStation,
+};
