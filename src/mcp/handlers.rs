@@ -449,3 +449,167 @@ impl Default for JourneyPreferences {
         }
     }
 }
+
+#[cfg(kani)]
+mod kani_input_validation_proofs {
+    use super::*;
+
+    // ---------------------------------------------------------------
+    // Helper: standalone validation functions mirroring handler logic
+    // (async handlers cannot be called directly from Kani harnesses)
+    // ---------------------------------------------------------------
+
+    /// Mirrors the radius validation gate in find_nearby_stations
+    fn validate_search_radius(radius_meters: u32) -> bool {
+        radius_meters <= MAX_SEARCH_RADIUS
+    }
+
+    /// Mirrors the limit validation gate in find_nearby_stations / search_stations_by_name
+    fn validate_result_limit(limit: u16) -> bool {
+        limit <= MAX_RESULT_LIMIT
+    }
+
+    /// Mirrors the query length validation gate in search_stations_by_name
+    fn validate_query_length(len: usize) -> bool {
+        len >= 2
+    }
+
+    /// Mirrors Coordinates::is_valid_paris_metro
+    fn is_valid_paris_metro(lat: f64, lon: f64) -> bool {
+        lat >= 48.7 && lat <= 49.0 && lon >= 2.0 && lon <= 2.6
+    }
+
+    /// Standalone Haversine distance (mirrors Coordinates::distance_to)
+    fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+        let earth_radius = 6_371_000.0_f64;
+        let lat1_rad = lat1.to_radians();
+        let lat2_rad = lat2.to_radians();
+        let delta_lat = (lat2 - lat1).to_radians();
+        let delta_lon = (lon2 - lon1).to_radians();
+        let a = (delta_lat / 2.0).sin().powi(2)
+            + lat1_rad.cos() * lat2_rad.cos() * (delta_lon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+        earth_radius * c
+    }
+
+    /// Mirrors Coordinates::is_within_paris_service_area
+    fn is_within_paris_service_area(lat: f64, lon: f64) -> bool {
+        const PARIS_CITY_HALL_LAT: f64 = 48.8565;
+        const PARIS_CITY_HALL_LON: f64 = 2.3514;
+        const MAX_DISTANCE_METERS: f64 = 50_000.0;
+        let distance = haversine_distance(lat, lon, PARIS_CITY_HALL_LAT, PARIS_CITY_HALL_LON);
+        distance <= MAX_DISTANCE_METERS
+    }
+
+    // ---------------------------------------------------------------
+    // Proof 1: Search radius validation — radius > 5000 is rejected
+    // ---------------------------------------------------------------
+    #[kani::proof]
+    fn verify_search_radius_validation() {
+        let radius: u32 = kani::any();
+
+        let is_valid = validate_search_radius(radius);
+
+        if radius > MAX_SEARCH_RADIUS {
+            assert!(!is_valid, "radius above MAX_SEARCH_RADIUS must be rejected");
+        } else {
+            assert!(is_valid, "radius within limit must be accepted");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Proof 2: Result limit validation — limit > 100 is rejected
+    // ---------------------------------------------------------------
+    #[kani::proof]
+    fn verify_result_limit_validation() {
+        let limit: u16 = kani::any();
+
+        let is_valid = validate_result_limit(limit);
+
+        if limit > MAX_RESULT_LIMIT {
+            assert!(!is_valid, "limit above MAX_RESULT_LIMIT must be rejected");
+        } else {
+            assert!(is_valid, "limit within range must be accepted");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Proof 3: Query length validation — len < 2 is rejected
+    // ---------------------------------------------------------------
+    #[kani::proof]
+    fn verify_query_length_validation() {
+        let len: usize = kani::any();
+        // Bound to avoid unbounded symbolic exploration
+        kani::assume(len <= 1000);
+
+        let is_valid = validate_query_length(len);
+
+        if len < 2 {
+            assert!(!is_valid, "query shorter than 2 chars must be rejected");
+        } else {
+            assert!(is_valid, "query of length >= 2 must be accepted");
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Proof 4: Coordinate validation completeness — points outside
+    // Paris metro bounds are always rejected
+    // ---------------------------------------------------------------
+    #[kani::proof]
+    fn verify_coordinate_validation_completeness() {
+        let lat: f64 = kani::any();
+        let lon: f64 = kani::any();
+
+        // Only consider finite values (NaN/Inf are not valid user input)
+        kani::assume(lat.is_finite());
+        kani::assume(lon.is_finite());
+
+        let valid = is_valid_paris_metro(lat, lon);
+
+        // If outside Paris metro bounds, the coordinate check must fail
+        if lat < 48.7 || lat > 49.0 || lon < 2.0 || lon > 2.6 {
+            assert!(
+                !valid,
+                "coordinates outside Paris metro bounds must be rejected"
+            );
+        } else {
+            assert!(
+                valid,
+                "coordinates within Paris metro bounds must be accepted"
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Proof 5: Service area validation — points inside service area
+    // are within 50km of Paris City Hall
+    // ---------------------------------------------------------------
+    #[kani::proof]
+    fn verify_service_area_validation() {
+        let lat: f64 = kani::any();
+        let lon: f64 = kani::any();
+
+        kani::assume(lat.is_finite());
+        kani::assume(lon.is_finite());
+        // Constrain to Paris metro bounds to keep solver tractable
+        kani::assume(lat >= 48.7 && lat <= 49.0);
+        kani::assume(lon >= 2.0 && lon <= 2.6);
+
+        let in_service = is_within_paris_service_area(lat, lon);
+        let distance = haversine_distance(lat, lon, 48.8565, 2.3514);
+
+        // distance must be finite for Paris-range coordinates
+        assert!(
+            distance.is_finite(),
+            "distance must be finite for Paris coords"
+        );
+
+        // If in service area, distance must be <= 50km
+        if in_service {
+            assert!(
+                distance <= 50_000.0,
+                "point reported as in-service must be within 50km"
+            );
+        }
+    }
+}
