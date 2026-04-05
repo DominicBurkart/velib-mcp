@@ -280,13 +280,18 @@ impl RetryableHttpClient {
         }
     }
 
-    /// Make a GET request with retry logic
-    pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
-        debug!("Making GET request to: {}", url);
-
+    /// Execute a prepared RequestBuilder with retry logic, handling 429 and
+    /// other HTTP errors uniformly. This is the single place that contains
+    /// the shared response-inspection logic used by every public request
+    /// method.
+    async fn execute_with_retry(
+        &self,
+        url: &str,
+        build_request: impl Fn() -> reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
         self.retry_policy
             .execute(|| async {
-                let response = self.client.get(url).send().await?;
+                let response = build_request().send().await?;
 
                 debug!("Received response: {} {}", response.status(), url);
 
@@ -314,40 +319,19 @@ impl RetryableHttpClient {
             .await
     }
 
+    /// Make a GET request with retry logic
+    pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
+        debug!("Making GET request to: {}", url);
+        self.execute_with_retry(url, || self.client.get(url)).await
+    }
+
     /// Make a GET request with query parameters and retry logic
     pub async fn get_with_query<T>(&self, url: &str, query: &T) -> Result<reqwest::Response>
     where
         T: serde::Serialize + ?Sized,
     {
         debug!("Making GET request with query params to: {}", url);
-
-        self.retry_policy
-            .execute(|| async {
-                let response = self.client.get(url).query(query).send().await?;
-
-                debug!("Received response: {} {}", response.status(), url);
-
-                // Check for rate limiting
-                if response.status() == 429 {
-                    let retry_after = extract_retry_after_from_response(&response);
-                    warn!(
-                        "Rate limited (429) for {}{}",
-                        url,
-                        retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {seconds}s"
-                        ))
-                    );
-                    return Err(create_rate_limited_error(&response));
-                }
-
-                // Check for other HTTP errors
-                if !response.status().is_success() {
-                    warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
-                }
-
-                Ok(response)
-            })
+        self.execute_with_retry(url, || self.client.get(url).query(query))
             .await
     }
 
