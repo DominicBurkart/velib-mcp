@@ -70,12 +70,6 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-        if !query_point.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.latitude,
-                longitude: input.longitude,
-            });
-        }
 
         // Enforce 50km distance limit from Paris City Hall
         if !query_point.is_within_paris_service_area() {
@@ -279,20 +273,6 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        if !input.origin.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.origin.latitude,
-                longitude: input.origin.longitude,
-            });
-        }
-
-        if !input.destination.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.destination.latitude,
-                longitude: input.destination.longitude,
-            });
-        }
-
         // Enforce 50km distance limit from Paris City Hall for both origin and destination
         if !input.origin.is_within_paris_service_area() {
             let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
