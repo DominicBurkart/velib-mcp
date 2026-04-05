@@ -326,3 +326,133 @@ impl VelibDataClient {
         (reference_size, realtime_size)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_client() -> VelibDataClient {
+        VelibDataClient::new()
+    }
+
+    // ---------------------------------------------------------------
+    // parse_realtime_status tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn parse_realtime_status_open_station() {
+        let client = make_client();
+        let record = json!({
+            "stationcode": "16107",
+            "mechanical": 3,
+            "ebike": 2,
+            "numdocksavailable": 10,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2024-01-15T10:00:00+00:00"
+        });
+
+        let result = client.parse_realtime_status(&record);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let (code, status) = result.unwrap();
+        assert_eq!(code, "16107");
+        assert_eq!(status.status, StationStatus::Open);
+        assert_eq!(status.bikes.mechanical, 3);
+        assert_eq!(status.bikes.electric, 2);
+        assert_eq!(status.available_docks, 10);
+    }
+
+    #[test]
+    fn parse_realtime_status_maintenance() {
+        // is_installed OUI but is_renting NON → Maintenance
+        let client = make_client();
+        let record = json!({
+            "stationcode": "16108",
+            "mechanical": 0,
+            "ebike": 0,
+            "numdocksavailable": 20,
+            "is_installed": "OUI",
+            "is_renting": "NON",
+            "is_returning": "OUI",
+            "duedate": "2024-01-15T10:00:00+00:00"
+        });
+
+        let result = client.parse_realtime_status(&record);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let (_, status) = result.unwrap();
+        assert_eq!(status.status, StationStatus::Maintenance);
+    }
+
+    #[test]
+    fn parse_realtime_status_closed() {
+        // is_installed NON → Closed
+        let client = make_client();
+        let record = json!({
+            "stationcode": "16109",
+            "mechanical": 0,
+            "ebike": 0,
+            "numdocksavailable": 0,
+            "is_installed": "NON",
+            "is_renting": "NON",
+            "is_returning": "NON",
+            "duedate": "2024-01-15T10:00:00+00:00"
+        });
+
+        let result = client.parse_realtime_status(&record);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let (_, status) = result.unwrap();
+        assert_eq!(status.status, StationStatus::Closed);
+    }
+
+    // ---------------------------------------------------------------
+    // parse_reference_station tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn parse_reference_station_happy_path() {
+        let client = make_client();
+        let record = json!({
+            "stationcode": "10042",
+            "name": "Benjamin Franklin - Ranelagh",
+            "capacity": 35,
+            "coordonnees_geo": {
+                "lat": 48.8566,
+                "lon": 2.3522
+            }
+        });
+
+        let result = client.parse_reference_station(&record);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let station = result.unwrap();
+        assert_eq!(station.station_code, "10042");
+        assert_eq!(station.name, "Benjamin Franklin - Ranelagh");
+        assert_eq!(station.capacity, 35);
+        assert!(
+            (station.coordinates.latitude - 48.8566).abs() < 1e-6,
+            "latitude mismatch"
+        );
+        assert!(
+            (station.coordinates.longitude - 2.3522).abs() < 1e-6,
+            "longitude mismatch"
+        );
+    }
+
+    #[test]
+    fn parse_reference_station_missing_field_returns_error() {
+        let client = make_client();
+        // Missing "capacity" field
+        let record = json!({
+            "stationcode": "10042",
+            "name": "Some Station",
+            "coordonnees_geo": {
+                "lat": 48.8566,
+                "lon": 2.3522
+            }
+        });
+
+        let result = client.parse_reference_station(&record);
+        assert!(result.is_err(), "Expected Err for missing capacity");
+    }
+}
