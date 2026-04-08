@@ -1,41 +1,28 @@
-# État Actuel du Projet Velib MCP
+# État du Projet Velib MCP
 
-## Phase Actuelle: Phase 2 - Architecture Système
+## Statut : Terminé ✅
 
-### Statut: Prêt à commencer
-Date de dernière mise à jour: 2025-06-14
+Toutes les phases de développement sont complètes. Le serveur est implémenté, testé et déployé.
 
-## Phase 0 - Configuration (TERMINÉE ✅)
-- ✅ Initialisation du projet Rust avec cargo
-- ✅ Configuration git et remote GitHub (DominicBurkart/velib-mcp)
-- ✅ Structure de documentation créée (/docs)
-- ✅ Configuration des hooks pre-commit (fmt, clippy, audit)
-- ✅ Workflow CI/CD GitHub Actions configuré
-- ✅ Dockerfile créé pour déploiement Scaleway (compatible Podman)
-- ✅ Système de suivi de contexte Claude initialisé
-- ✅ Documentation projet et README créés
+## Phases Complétées
 
-## Phase 1 - Analyse des Données (TERMINÉE ✅)
-- ✅ Analyse complète du dataset disponibilité temps réel
-- ✅ Analyse complète du dataset emplacements des stations
-- ✅ Identification structure données et colonnes (15+ champs)
-- ✅ Documentation technique détaillée (/docs/api/data_analysis.md)
-- ✅ Schémas de données Rust complets (/docs/api/mcp_schemas.md)
-- ✅ Spécification interfaces MCP avec 5 tools (/docs/api/mcp_interface_spec.md)
+- **Phase 0** : Configuration projet, CI/CD, structure documentation
+- **Phase 1** : Analyse des datasets Velib (15+ champs documentés)
+- **Phase 2A** : Environnement et fondation serveur
+- **Phase 2B** : Protocole MCP et types de base
+- **Phase 3A** : Client de données et intégration API live
+- **Phase 3B** : Handlers MCP complets avec données live
+- **Phase 4** : Nettoyage du repository
 
-## Prochaines Étapes (Phase 2)
-1. 🎯 Architecturer le système et composants
-2. 🎯 Définir l'organisation modulaire du code Rust
-3. 🎯 Planifier l'approche agile avec PRs cohérentes
-4. 🎯 Documenter l'architecture dans /docs/decisions
+## Stack Technique
 
-## Dépendances Techniques
-- Rust (version stable récente)
-- GitHub Actions pour CI/CD
-- Scaleway CLI pour déploiement
-- Podman pour conteneurisation
+- **Langage** : Rust (stable)
+- **Déploiement** : Scaleway Container Serverless via GitHub Actions
+- **Conteneurisation** : Podman / image distroless Debian
+- **Approche** : TDD
 
-## Notes Importantes
-- Repository configuré pour github.com/dominicburkart/velib-mcp
-- Email configuré: dominic@dominic.computer
-- Approche TDD requise pour toutes les fonctionnalités
+## Références
+
+- Architecture et commandes de développement : [CLAUDE.md](../../CLAUDE.md)
+- Analyse des données : [docs/api/data_analysis.md](../api/data_analysis.md)
+- Spécification MCP : [docs/api/mcp_interface_spec.md](../api/mcp_interface_spec.md)
