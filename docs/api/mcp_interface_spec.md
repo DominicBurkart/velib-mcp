@@ -1,549 +1,281 @@
-# Spécification des Interfaces MCP - Velib Server
+# MCP Interface Specification — Velib Server
 
-## Vue d'ensemble
+## Overview
 
-Ce document définit les interfaces MCP (Model Context Protocol) exposées par le serveur Velib pour l'accès aux données de vélos en libre-service parisien.
+This document defines the MCP resources and tools exposed by the Velib server.
 
-## Architecture MCP
+## Server Identity
 
-### Serveur MCP
-- **Nom** : `velib-mcp`
-- **Version** : `1.0.0`
-- **Description** : Serveur MCP pour les données Velib Paris
-- **Capacités** : `resources`, `tools`
+- **Name**: `velib-mcp`
+- **Version**: `1.0.0`
+- **Capabilities**: `resources`, `tools`
+- **Transport**: JSON-RPC 2.0 over HTTP (`POST /mcp`) and WebSocket (`/mcp/ws`)
+- **Default port**: 8080
 
-### Transport
-- **Protocole** : JSON-RPC 2.0 over HTTP/WebSocket
-- **Encoding** : UTF-8
-- **Port par défaut** : 8080
+## Resources
 
-## Resources MCP
+### `velib://stations/reference`
 
-### 1. Stations de Référence
+Static catalog of all Velib stations.
 
-#### Resource URI
-```
-velib://stations/reference
-```
-
-#### Description
-Catalogue complet des stations Velib avec leurs métadonnées statiques.
-
-#### Content Type
-```
-application/json
-```
-
-#### Exemple de Contenu
 ```json
 {
   "stations": [
     {
       "station_code": "32017",
       "name": "Rouget de L'isle - Watteau",
-      "coordinates": {
-        "latitude": 48.936268,
-        "longitude": 2.358866
-      },
+      "coordinates": { "latitude": 48.936268, "longitude": 2.358866 },
       "capacity": 22,
       "commune": "Issy-les-Moulineaux"
     }
   ],
   "metadata": {
     "total_stations": 1400,
-    "last_updated": "2025-06-14T06:00:00Z"
+    "last_updated": "<ISO-8601 timestamp>"
   }
 }
 ```
 
-### 2. Disponibilité Temps Réel
+### `velib://stations/realtime`
 
-#### Resource URI
-```
-velib://stations/realtime
-```
+Current bike and dock availability for all stations.
 
-#### Description
-État actuel de toutes les stations avec disponibilité des vélos et emplacements.
-
-#### Content Type
-```
-application/json
-```
-
-#### Exemple de Contenu
 ```json
 {
   "stations": [
     {
       "station_code": "32017",
-      "bikes": {
-        "mechanical": 8,
-        "electric": 4
-      },
+      "bikes": { "mechanical": 8, "electric": 4 },
       "available_docks": 10,
-      "service": {
-        "renting_enabled": true,
-        "returning_enabled": true,
-        "installed": true
-      },
-      "status": "Operational",
-      "last_updated": "2025-06-14T19:31:22Z"
+      "status": "OPEN",
+      "last_update": "<ISO-8601 timestamp>",
+      "data_freshness": "Fresh"
     }
   ],
   "metadata": {
-    "data_freshness": "Fresh",
-    "response_time": "2025-06-14T19:31:25Z"
+    "total_stations": 1400,
+    "response_time": "<ISO-8601 timestamp>"
   }
 }
 ```
 
-### 3. Stations Consolidées
+### `velib://stations/complete`
 
-#### Resource URI
-```
-velib://stations/complete
-```
+Combined reference and real-time data for all stations.
 
-#### Description
-Vue complète combinant données de référence et temps réel.
+### `velib://health`
 
-#### Content Type
-```
-application/json
-```
+Service health and cache statistics.
 
-## Tools MCP
-
-### 1. Recherche de Stations Proches
-
-#### Tool Name
-```
-find_nearby_stations
-```
-
-#### Description
-Trouve les stations Velib dans un rayon donné autour d'un point.
-
-#### Input Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "latitude": {
-      "type": "number",
-      "minimum": 48.7,
-      "maximum": 49.0,
-      "description": "Latitude du point central"
-    },
-    "longitude": {
-      "type": "number", 
-      "minimum": 2.0,
-      "maximum": 2.6,
-      "description": "Longitude du point central"
-    },
-    "radius_meters": {
-      "type": "integer",
-      "minimum": 100,
-      "maximum": 5000,
-      "default": 500,
-      "description": "Rayon de recherche en mètres"
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 100,
-      "default": 10,
-      "description": "Nombre maximum de stations"
-    },
-    "availability_filter": {
-      "type": "object",
-      "properties": {
-        "min_bikes": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Minimum de vélos disponibles"
-        },
-        "min_docks": {
-          "type": "integer", 
-          "minimum": 0,
-          "description": "Minimum d'emplacements libres"
-        },
-        "bike_type": {
-          "type": "string",
-          "enum": ["mechanical", "electric", "any"],
-          "default": "any",
-          "description": "Type de vélos requis"
-        }
-      }
-    }
-  },
-  "required": ["latitude", "longitude"]
-}
-```
-
-#### Output Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "stations": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/VelibStation"
-      }
-    },
-    "search_metadata": {
-      "type": "object",
-      "properties": {
-        "query_point": {
-          "type": "object",
-          "properties": {
-            "latitude": {"type": "number"},
-            "longitude": {"type": "number"}
-          }
-        },
-        "radius_meters": {"type": "integer"},
-        "total_found": {"type": "integer"},
-        "search_time_ms": {"type": "integer"}
-      }
-    }
-  }
-}
-```
-
-#### Exemple d'Utilisation
-```json
-{
-  "name": "find_nearby_stations",
-  "arguments": {
-    "latitude": 48.8566,
-    "longitude": 2.3522,
-    "radius_meters": 1000,
-    "limit": 5,
-    "availability_filter": {
-      "min_bikes": 2,
-      "bike_type": "electric"
-    }
-  }
-}
-```
-
-### 2. Obtenir Station par Code
-
-#### Tool Name
-```
-get_station_by_code
-```
-
-#### Description
-Récupère les informations complètes d'une station spécifique.
-
-#### Input Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "station_code": {
-      "type": "string",
-      "pattern": "^[0-9]+$",
-      "description": "Code unique de la station"
-    },
-    "include_real_time": {
-      "type": "boolean",
-      "default": true,
-      "description": "Inclure les données temps réel"
-    }
-  },
-  "required": ["station_code"]
-}
-```
-
-#### Output Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "station": {
-      "$ref": "#/definitions/VelibStation"
-    },
-    "found": {
-      "type": "boolean",
-      "description": "Station trouvée ou non"
-    }
-  }
-}
-```
-
-### 3. Recherche par Nom de Station
-
-#### Tool Name
-```
-search_stations_by_name
-```
-
-#### Description
-Recherche textuelle dans les noms de stations.
-
-#### Input Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "query": {
-      "type": "string",
-      "minLength": 2,
-      "description": "Terme de recherche dans le nom"
-    },
-    "limit": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 50,
-      "default": 10,
-      "description": "Nombre maximum de résultats"
-    },
-    "fuzzy": {
-      "type": "boolean",
-      "default": true,
-      "description": "Recherche approximative autorisée"
-    }
-  },
-  "required": ["query"]
-}
-```
-
-### 4. Statistiques de Zone
-
-#### Tool Name
-```
-get_area_statistics
-```
-
-#### Description
-Calcule des statistiques agrégées pour une zone géographique.
-
-#### Input Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "bounds": {
-      "type": "object",
-      "properties": {
-        "north": {"type": "number"},
-        "south": {"type": "number"},
-        "east": {"type": "number"},
-        "west": {"type": "number"}
-      },
-      "required": ["north", "south", "east", "west"]
-    },
-    "include_real_time": {
-      "type": "boolean",
-      "default": true
-    }
-  },
-  "required": ["bounds"]
-}
-```
-
-#### Output Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "area_stats": {
-      "type": "object",
-      "properties": {
-        "total_stations": {"type": "integer"},
-        "operational_stations": {"type": "integer"},
-        "total_capacity": {"type": "integer"},
-        "available_bikes": {
-          "type": "object",
-          "properties": {
-            "mechanical": {"type": "integer"},
-            "electric": {"type": "integer"},
-            "total": {"type": "integer"}
-          }
-        },
-        "available_docks": {"type": "integer"},
-        "occupancy_rate": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Taux d'occupation (0-1)"
-        }
-      }
-    },
-    "bounds": {"$ref": "#/definitions/GeographicBounds"}
-  }
-}
-```
-
-### 5. Itinéraire avec Vélos
-
-#### Tool Name
-```
-plan_bike_journey
-```
-
-#### Description
-Planifie un trajet en suggérant stations de départ et d'arrivée.
-
-#### Input Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "origin": {
-      "type": "object",
-      "properties": {
-        "latitude": {"type": "number"},
-        "longitude": {"type": "number"}
-      },
-      "required": ["latitude", "longitude"]
-    },
-    "destination": {
-      "type": "object", 
-      "properties": {
-        "latitude": {"type": "number"},
-        "longitude": {"type": "number"}
-      },
-      "required": ["latitude", "longitude"]
-    },
-    "preferences": {
-      "type": "object",
-      "properties": {
-        "bike_type": {
-          "type": "string",
-          "enum": ["mechanical", "electric", "any"],
-          "default": "any"
-        },
-        "max_walk_distance": {
-          "type": "integer",
-          "default": 500,
-          "description": "Distance max à pied en mètres"
-        }
-      }
-    }
-  },
-  "required": ["origin", "destination"]
-}
-```
-
-#### Output Schema
-```json
-{
-  "type": "object",
-  "properties": {
-    "journey": {
-      "type": "object",
-      "properties": {
-        "pickup_stations": {
-          "type": "array",
-          "items": {"$ref": "#/definitions/StationWithDistance"}
-        },
-        "dropoff_stations": {
-          "type": "array", 
-          "items": {"$ref": "#/definitions/StationWithDistance"}
-        },
-        "recommendations": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "pickup_station": {"$ref": "#/definitions/VelibStation"},
-              "dropoff_station": {"$ref": "#/definitions/VelibStation"},
-              "walk_to_pickup": {"type": "integer"},
-              "walk_from_dropoff": {"type": "integer"},
-              "confidence_score": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-## Gestion des Erreurs
-
-### Codes d'Erreur Standard
-```json
-{
-  "error": {
-    "code": -32001,
-    "message": "Station not found",
-    "data": {
-      "station_code": "99999",
-      "error_type": "STATION_NOT_FOUND"
-    }
-  }
-}
-```
-
-### Types d'Erreurs
-- `-32001` : Station non trouvée
-- `-32002` : Coordonnées invalides  
-- `-32003` : Données temps réel indisponibles
-- `-32004` : Rayon de recherche trop large
-- `-32005` : Limite de résultats dépassée
-
-## Rate Limiting
-
-### Limites par Défaut
-- **Resources** : 60 requêtes/minute
-- **Tools** : 100 requêtes/minute
-- **Burst** : 10 requêtes/seconde
-
-### Headers de Réponse
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
-```
-
-## Authentification
-
-### Mode Public
-- Aucune authentification requise
-- Rate limiting appliqué par IP
-
-### Mode API Key (Futur)
-```http
-Authorization: Bearer <api_key>
-```
-
-## Métadonnées de Santé
-
-### Resource URI
-```
-velib://health
-```
-
-#### Contenu
 ```json
 {
   "status": "healthy",
   "version": "1.0.0",
   "uptime_seconds": 86400,
   "data_sources": {
-    "real_time": {
-      "status": "healthy",
-      "last_update": "2025-06-14T19:31:22Z",
-      "lag_seconds": 45
-    },
-    "reference": {
-      "status": "healthy", 
-      "last_update": "2025-06-14T06:00:00Z"
-    }
+    "real_time": { "status": "healthy", "last_update": "<ISO-8601 timestamp>", "lag_seconds": 45 },
+    "reference": { "status": "healthy", "last_update": "<ISO-8601 timestamp>" }
   },
-  "cache_stats": {
-    "hit_rate": 0.85,
-    "entries": 1400
+  "cache_stats": { "hit_rate": 0.85, "entries": 1400 }
+}
+```
+
+## Tools
+
+### `find_nearby_stations`
+
+Find stations within a radius of a coordinate point.
+
+**Input**:
+```json
+{
+  "type": "object",
+  "required": ["latitude", "longitude"],
+  "properties": {
+    "latitude":       { "type": "number",  "minimum": 48.7, "maximum": 49.0 },
+    "longitude":      { "type": "number",  "minimum": 2.0,  "maximum": 2.6 },
+    "radius_meters":  { "type": "integer", "minimum": 100,  "maximum": 5000, "default": 500 },
+    "limit":          { "type": "integer", "minimum": 1,    "maximum": 100,  "default": 10 },
+    "availability_filter": {
+      "type": "object",
+      "properties": {
+        "min_bikes": { "type": "integer", "minimum": 0 },
+        "min_docks": { "type": "integer", "minimum": 0 },
+        "bike_type": { "type": "string", "enum": ["mechanical", "electric", "any"], "default": "any" }
+      }
+    }
   }
 }
 ```
+
+**Output**:
+```json
+{
+  "stations": [ "<StationWithDistance>" ],
+  "search_metadata": {
+    "query_point": { "latitude": 48.8566, "longitude": 2.3522 },
+    "radius_meters": 1000,
+    "total_found": 5,
+    "search_time_ms": 42
+  }
+}
+```
+
+**Example call**:
+```json
+{
+  "name": "find_nearby_stations",
+  "arguments": {
+    "latitude": 48.8566, "longitude": 2.3522,
+    "radius_meters": 1000, "limit": 5,
+    "availability_filter": { "min_bikes": 2, "bike_type": "electric" }
+  }
+}
+```
+
+---
+
+### `get_station_by_code`
+
+Get full details for a specific station.
+
+**Input**:
+```json
+{
+  "type": "object",
+  "required": ["station_code"],
+  "properties": {
+    "station_code":      { "type": "string", "pattern": "^[0-9]+$" },
+    "include_real_time": { "type": "boolean", "default": true }
+  }
+}
+```
+
+**Output**:
+```json
+{ "found": true, "station": "<VelibStation>" }
+```
+
+---
+
+### `search_stations_by_name`
+
+Text search across station names.
+
+**Input**:
+```json
+{
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": { "type": "string", "minLength": 2 },
+    "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 },
+    "fuzzy": { "type": "boolean", "default": true }
+  }
+}
+```
+
+---
+
+### `get_area_statistics`
+
+Aggregated stats for a geographic bounding box.
+
+**Input**:
+```json
+{
+  "type": "object",
+  "required": ["bounds"],
+  "properties": {
+    "bounds": {
+      "type": "object",
+      "required": ["north", "south", "east", "west"],
+      "properties": {
+        "north": { "type": "number" }, "south": { "type": "number" },
+        "east":  { "type": "number" }, "west":  { "type": "number" }
+      }
+    },
+    "include_real_time": { "type": "boolean", "default": true }
+  }
+}
+```
+
+**Output**:
+```json
+{
+  "area_stats": {
+    "total_stations": 42,
+    "operational_stations": 40,
+    "total_capacity": 840,
+    "available_bikes": { "mechanical": 120, "electric": 80, "total": 200 },
+    "available_docks": 640,
+    "occupancy_rate": 0.24
+  },
+  "bounds": { "north": 48.9, "south": 48.8, "east": 2.4, "west": 2.3 }
+}
+```
+
+---
+
+### `plan_bike_journey`
+
+Suggest pickup and dropoff stations for a journey.
+
+**Input**:
+```json
+{
+  "type": "object",
+  "required": ["origin", "destination"],
+  "properties": {
+    "origin":      { "type": "object", "required": ["latitude","longitude"], "properties": { "latitude": {"type":"number"}, "longitude": {"type":"number"} } },
+    "destination": { "type": "object", "required": ["latitude","longitude"], "properties": { "latitude": {"type":"number"}, "longitude": {"type":"number"} } },
+    "preferences": {
+      "type": "object",
+      "properties": {
+        "bike_type":         { "type": "string", "enum": ["mechanical","electric","any"], "default": "any" },
+        "max_walk_distance": { "type": "integer", "default": 500, "description": "Max walking distance in meters" }
+      }
+    }
+  }
+}
+```
+
+**Output**:
+```json
+{
+  "journey": {
+    "pickup_stations":  [ "<StationWithDistance>" ],
+    "dropoff_stations": [ "<StationWithDistance>" ],
+    "recommendations": [
+      {
+        "pickup_station":  "<VelibStation>",
+        "dropoff_station": "<VelibStation>",
+        "straight_line_to_pickup_meters":   120,
+        "straight_line_from_dropoff_meters": 85,
+        "confidence_score": 0.87
+      }
+    ]
+  }
+}
+```
+
+## Error Codes
+
+| Code    | Meaning |
+|---------|---------|
+| `-32700` | Parse error (invalid JSON) |
+| `-32602` | Invalid params (bad coordinates, radius too large, etc.) |
+| `-32600` | Invalid request (station not found) |
+| `-32603` | Internal error |
+
+## Rate Limits
+
+- Resources: 60 req/min
+- Tools: 100 req/min
+- Burst: 10 req/s
+
+Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+## Authentication
+
+Currently unauthenticated (rate-limited by IP). API key support is planned.
