@@ -25,6 +25,13 @@ const PARIS_CITY_HALL: Coordinates = Coordinates {
 
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
+///
+/// Each matched station is cloned into the returned `StationWithDistance`. This
+/// is intentional: callers that hold the original slice (e.g. `plan_bike_journey`,
+/// which needs `all_stations` for both the pickup and the dropoff pass) must not
+/// have their data consumed. For `find_nearby_stations`, which previously used
+/// `into_iter()`, this introduces one extra clone per matched station; given the
+/// Paris Velib network of ~1,400 stations this overhead is negligible.
 fn find_stations_within_radius(
     stations: &[VelibStation],
     origin: &Coordinates,
@@ -422,5 +429,198 @@ impl Default for JourneyPreferences {
             bike_type: BikeTypeFilter::AnyType,
             max_walk_distance: 500,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{
+        BikeAvailability, DataFreshness, RealTimeStatus, ServiceCapabilities, StationReference,
+        StationStatus,
+    };
+    use chrono::Utc;
+
+    /// Build a minimal operational station with the given code, coordinates, and bike counts.
+    fn make_station(
+        code: &str,
+        lat: f64,
+        lon: f64,
+        mechanical: u16,
+        electric: u16,
+    ) -> VelibStation {
+        VelibStation {
+            reference: StationReference {
+                station_code: code.to_string(),
+                name: format!("Station {code}"),
+                coordinates: Coordinates::new(lat, lon),
+                capacity: 20,
+                capabilities: ServiceCapabilities::default(),
+            },
+            real_time: Some(RealTimeStatus {
+                bikes: BikeAvailability::new(mechanical, electric),
+                available_docks: 20 - mechanical - electric,
+                status: StationStatus::Open,
+                last_update: Utc::now(),
+                data_freshness: DataFreshness::Fresh,
+            }),
+        }
+    }
+
+    /// Paris City Hall as a convenient well-known origin.
+    fn paris_city_hall() -> Coordinates {
+        Coordinates::new(48.8565, 2.3514)
+    }
+
+    // --- filtering by radius ---
+
+    #[test]
+    fn test_radius_filtering_excludes_distant_stations() {
+        let origin = paris_city_hall();
+        // ~111 m per 0.001° latitude; place one station ~200 m away and one ~2 km away.
+        let near = make_station("near", 48.8565, 2.3514, 2, 0); // same point
+        let far = make_station("far", 48.875, 2.3514, 2, 0); // ~2 km north
+        let stations = vec![near, far];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "near");
+    }
+
+    #[test]
+    fn test_empty_result_when_all_stations_out_of_radius() {
+        let origin = paris_city_hall();
+        let far1 = make_station("far1", 48.875, 2.3514, 2, 0);
+        let far2 = make_station("far2", 48.880, 2.3514, 2, 0);
+        let stations = vec![far1, far2];
+
+        let results = find_stations_within_radius(&stations, &origin, 100, 10, |_| true);
+
+        assert!(results.is_empty());
+    }
+
+    // --- sort order ---
+
+    #[test]
+    fn test_results_sorted_by_distance_ascending() {
+        let origin = paris_city_hall();
+        // Build stations in reverse distance order so we can confirm sorting flips them.
+        let closest = make_station("closest", 48.8566, 2.3514, 1, 0); // ~11 m
+        let middle = make_station("middle", 48.8575, 2.3514, 1, 0); // ~110 m
+        let farthest = make_station("farthest", 48.8585, 2.3514, 1, 0); // ~220 m
+        let stations = vec![farthest.clone(), middle.clone(), closest.clone()];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].station.reference.station_code, "closest");
+        assert_eq!(results[1].station.reference.station_code, "middle");
+        assert_eq!(results[2].station.reference.station_code, "farthest");
+        // Distances must be non-decreasing.
+        assert!(
+            results[0].straight_line_distance_meters
+                <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters
+                <= results[2].straight_line_distance_meters
+        );
+    }
+
+    // --- truncation ---
+
+    #[test]
+    fn test_truncation_to_limit() {
+        let origin = paris_city_hall();
+        let stations: Vec<VelibStation> = (0..10)
+            .map(|i| {
+                // Space them out within radius but at different distances.
+                make_station(
+                    &format!("s{i}"),
+                    48.8565 + f64::from(i) * 0.0001,
+                    2.3514,
+                    1,
+                    0,
+                )
+            })
+            .collect();
+
+        let results = find_stations_within_radius(&stations, &origin, 5000, 3, |_| true);
+
+        assert_eq!(results.len(), 3);
+        // The 3 returned must be the 3 closest (limit applied after sort).
+        assert!(results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters);
+        assert!(results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters);
+    }
+
+    #[test]
+    fn test_limit_larger_than_matches_returns_all_matches() {
+        let origin = paris_city_hall();
+        let stations = vec![
+            make_station("a", 48.8565, 2.3514, 1, 0),
+            make_station("b", 48.8566, 2.3514, 1, 0),
+        ];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 100, |_| true);
+
+        assert_eq!(results.len(), 2);
+    }
+
+    // --- predicate ---
+
+    #[test]
+    fn test_predicate_filters_stations() {
+        let origin = paris_city_hall();
+        // One station has mechanical bikes, one has only electric.
+        let mech = make_station("mech", 48.8565, 2.3514, 3, 0);
+        let elec = make_station("elec", 48.8566, 2.3514, 0, 3);
+        let stations = vec![mech, elec];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |s| {
+            s.has_available_bikes(&BikeTypeFilter::MechanicalOnly)
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "mech");
+    }
+
+    #[test]
+    fn test_predicate_rejects_all_returns_empty() {
+        let origin = paris_city_hall();
+        let stations = vec![
+            make_station("a", 48.8565, 2.3514, 1, 0),
+            make_station("b", 48.8566, 2.3514, 1, 0),
+        ];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| false);
+
+        assert!(results.is_empty());
+    }
+
+    // --- combined: predicate + radius + truncation ---
+
+    #[test]
+    fn test_combined_radius_predicate_and_limit() {
+        let origin = paris_city_hall();
+        // 5 stations in radius with mechanical bikes, 2 outside radius, 1 in radius without bikes.
+        let mut stations: Vec<VelibStation> = (0..5)
+            .map(|i| make_station(&format!("m{i}"), 48.8565 + f64::from(i) * 0.0001, 2.3514, 2, 0))
+            .collect();
+        stations.push(make_station("far", 48.875, 2.3514, 2, 0)); // outside radius
+        stations.push(make_station("nobike", 48.8566, 2.3520, 0, 0)); // in radius, no bikes
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 3, |s| {
+            s.has_available_bikes(&BikeTypeFilter::MechanicalOnly)
+        });
+
+        assert_eq!(results.len(), 3);
+        // All returned stations must be within radius.
+        for r in &results {
+            assert!(r.straight_line_distance_meters <= 500);
+        }
+        // Must be sorted by distance.
+        assert!(results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters);
+        assert!(results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters);
     }
 }
