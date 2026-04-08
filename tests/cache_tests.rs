@@ -1,99 +1,94 @@
-//! Unit tests for InMemoryCache.
+//! Unit tests for `InMemoryCache` that run entirely offline.
 //!
-//! All tests are offline — no network access required.
+//! Key invariants validated:
+//! - Fresh entries are returned; expired entries are not.
+//! - `insert_with_ttl` overrides the default TTL.
+//! - `remove` returns the value and shrinks the cache.
+//! - `clear` empties the cache without error.
+//! - `cleanup_expired` only evicts entries whose TTL has passed.
 
 use chrono::Duration;
 use velib_mcp::data::cache::InMemoryCache;
 
-// ── basic get/insert ────────────────────────────────────────────────────────
-
 #[tokio::test]
-async fn cache_miss_on_empty() {
-    let cache: InMemoryCache<&str, u32> = InMemoryCache::new(Duration::minutes(5));
-    assert!(cache.get(&"missing").await.is_none());
+async fn fresh_entry_is_returned() {
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(5));
+    cache.insert("k".to_string(), 42).await;
+    assert_eq!(cache.get(&"k".to_string()).await, Some(42));
 }
 
 #[tokio::test]
-async fn cache_hit_after_insert() {
-    let cache = InMemoryCache::new(Duration::minutes(5));
-    cache.insert("key", 42u32).await;
-    assert_eq!(cache.get(&"key").await, Some(42));
-}
-
-#[tokio::test]
-async fn cache_miss_after_remove() {
-    let cache = InMemoryCache::new(Duration::minutes(5));
-    cache.insert("key", 42u32).await;
-    let removed = cache.remove(&"key").await;
-    assert_eq!(removed, Some(42));
-    assert!(cache.get(&"key").await.is_none());
-}
-
-#[tokio::test]
-async fn cache_size_tracks_insertions() {
-    let cache = InMemoryCache::new(Duration::minutes(5));
-    assert_eq!(cache.size().await, 0);
-    cache.insert("a", 1u32).await;
-    cache.insert("b", 2u32).await;
-    assert_eq!(cache.size().await, 2);
-}
-
-#[tokio::test]
-async fn cache_clear_empties_all_entries() {
-    let cache = InMemoryCache::new(Duration::minutes(5));
-    cache.insert("a", 1u32).await;
-    cache.insert("b", 2u32).await;
-    cache.clear().await;
-    assert_eq!(cache.size().await, 0);
-}
-
-// ── TTL / expiry ─────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn expired_entry_returns_none() {
-    // Insert with a negative TTL so the entry is immediately expired.
-    let cache: InMemoryCache<&str, u32> = InMemoryCache::new(Duration::seconds(-1));
-    cache.insert("key", 99u32).await;
-    // The entry exists in the map but its expires_at is in the past.
-    assert!(cache.get(&"key").await.is_none());
+async fn expired_entry_is_not_returned() {
+    // TTL of -1 minute means the entry is already expired on insertion.
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(-1));
+    cache.insert("k".to_string(), 99).await;
+    assert_eq!(cache.get(&"k".to_string()).await, None);
 }
 
 #[tokio::test]
 async fn insert_with_ttl_overrides_default() {
-    // Default TTL is generous; per-entry TTL is already expired.
-    let cache: InMemoryCache<&str, u32> = InMemoryCache::new(Duration::minutes(5));
+    // Default TTL would be expired, but we override with a long TTL.
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(-1));
     cache
-        .insert_with_ttl("key", 7u32, Duration::seconds(-1))
+        .insert_with_ttl("k".to_string(), 7, Duration::minutes(10))
         .await;
-    assert!(cache.get(&"key").await.is_none());
+    assert_eq!(cache.get(&"k".to_string()).await, Some(7));
 }
 
 #[tokio::test]
-async fn cleanup_expired_removes_stale_keeps_fresh() {
-    let cache: InMemoryCache<&str, u32> = InMemoryCache::new(Duration::minutes(5));
+async fn remove_returns_value_and_shrinks_cache() {
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(5));
+    cache.insert("a".to_string(), 1).await;
+    cache.insert("b".to_string(), 2).await;
 
-    // Stale entry — negative TTL.
-    cache
-        .insert_with_ttl("stale", 1u32, Duration::seconds(-1))
-        .await;
-    // Fresh entry — positive TTL.
-    cache
-        .insert_with_ttl("fresh", 2u32, Duration::minutes(5))
-        .await;
+    let removed = cache.remove(&"a".to_string()).await;
+    assert_eq!(removed, Some(1));
+    assert_eq!(cache.size().await, 1);
+    assert_eq!(cache.get(&"a".to_string()).await, None);
+}
 
+#[tokio::test]
+async fn remove_missing_key_returns_none() {
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(5));
+    assert_eq!(cache.remove(&"ghost".to_string()).await, None);
+}
+
+#[tokio::test]
+async fn clear_empties_cache() {
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(5));
+    cache.insert("x".to_string(), 1).await;
+    cache.insert("y".to_string(), 2).await;
     assert_eq!(cache.size().await, 2);
+
+    cache.clear().await;
+    assert_eq!(cache.size().await, 0);
+}
+
+#[tokio::test]
+async fn cleanup_expired_evicts_only_stale_entries() {
+    let cache: InMemoryCache<String, u32> = InMemoryCache::new(Duration::minutes(5));
+    // Insert one fresh entry and one pre-expired entry.
+    cache.insert("fresh".to_string(), 1).await;
+    cache
+        .insert_with_ttl("stale".to_string(), 2, Duration::minutes(-1))
+        .await;
+    assert_eq!(cache.size().await, 2);
+
     cache.cleanup_expired().await;
     assert_eq!(cache.size().await, 1);
-    assert_eq!(cache.get(&"fresh").await, Some(2));
+    assert_eq!(cache.get(&"fresh".to_string()).await, Some(1));
+    assert_eq!(cache.get(&"stale".to_string()).await, None);
 }
 
-// ── overwrite behaviour ───────────────────────────────────────────────────────
-
 #[tokio::test]
-async fn insert_overwrites_existing_key() {
-    let cache = InMemoryCache::new(Duration::minutes(5));
-    cache.insert("key", 1u32).await;
-    cache.insert("key", 2u32).await;
-    assert_eq!(cache.get(&"key").await, Some(2));
+async fn size_reflects_insertion_count() {
+    let cache: InMemoryCache<u32, &str> = InMemoryCache::new(Duration::minutes(5));
+    assert_eq!(cache.size().await, 0);
+    cache.insert(1, "a").await;
     assert_eq!(cache.size().await, 1);
+    cache.insert(2, "b").await;
+    assert_eq!(cache.size().await, 2);
+    // Re-inserting the same key does not grow the cache.
+    cache.insert(1, "c").await;
+    assert_eq!(cache.size().await, 2);
 }
