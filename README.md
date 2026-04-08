@@ -1,69 +1,44 @@
 # Velib MCP Server
 
-[![Test Coverage](https://img.shields.io/badge/coverage-check%20actions-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
 [![Tests](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![Security Audit](https://img.shields.io/badge/security-audit%20passing-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/DominicBurkart/velib-mcp#license)
-[![Rust Version](https://img.shields.io/badge/rust-latest%20stable-orange)](https://www.rust-lang.org/)
 [![Deploy Status](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/DominicBurkart/velib-mcp#license)
 
-A high-performance Model Context Protocol (MCP) server providing access to Paris Velib bike sharing data for AI assistants.
+A Rust MCP server exposing Paris Velib bike sharing data to AI assistants.
 
-## Quick Start - Install with Claude Code
-
-Install and use the Velib MCP server with Claude Code in one command:
+## Quick Start
 
 ```bash
-# Install and configure the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+claude mcp add velib velib-mcp
 ```
 
-Then use in Claude Code:
+Example queries:
 ```
 @velib find nearby stations at latitude 48.8566 longitude 2.3522
 @velib get station by code 16107
 @velib search stations by name "châtelet"
 ```
 
-## Overview
-
-This project exposes two key Parisian datasets through MCP:
-- **Real-time availability**: Current bike and dock availability at stations
-- **Station locations**: Geographic information and details about all Velib stations
-
 ## Data Sources
 
-- [Velib Real-time Availability](https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/)
-- [Velib Station Locations](https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/)
+- [Real-time availability](https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/)
+- [Station locations](https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/)
 
 ## Available Tools
 
-- `find_nearby_stations`: Find Velib stations within a radius of coordinates
-- `get_station_by_code`: Get detailed information about a specific station
-- `search_stations_by_name`: Search stations by name with optional fuzzy matching
-- `get_area_statistics`: Get aggregated statistics for a geographic area
-- `plan_bike_journey`: Plan a bike journey with pickup and dropoff suggestions
+| Tool | Description |
+|------|-------------|
+| `find_nearby_stations` | Find stations within a radius of coordinates |
+| `get_station_by_code` | Get details for a specific station |
+| `search_stations_by_name` | Search stations by name (supports fuzzy matching) |
+| `get_area_statistics` | Aggregated stats for a geographic bounding box |
+| `plan_bike_journey` | Suggest pickup/dropoff stations for a journey |
 
-## Integration with Other AI Tools
+## Integration with Cursor
 
-<details>
-<summary>Click to expand integration guides</summary>
-
-### ChatGPT
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
-```
-
-### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+Add to `settings.json`:
+```json
 {
   "mcp.servers": {
     "velib": {
@@ -74,32 +49,9 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 }
 ```
 
-### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
-```
-
-### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
-
-</details>
-
 ## Development
 
-### Prerequisites
-
-- Rust (latest stable)
-- OpenSSL development libraries
-- pkg-config
-
-### Setup
+**Prerequisites**: Rust (latest stable), OpenSSL dev libraries, pkg-config
 
 ```bash
 git clone https://github.com/dominicburkart/velib-mcp.git
@@ -107,8 +59,7 @@ cd velib-mcp
 cargo build
 ```
 
-### Testing
-
+**Checks** (all required before merging):
 ```bash
 cargo test
 cargo fmt --check
@@ -116,32 +67,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo audit
 ```
 
-### Podman
-
+**Container**:
 ```bash
-# Build container image
 podman build -t velib-mcp .
-
-# Run container
 podman run -p 8080:8080 velib-mcp
 ```
 
-## Deployment
-
-The project is configured for deployment to Scaleway Container Serverless via GitHub Actions on pushes to the main branch.
-
-## Architecture
-
-- **Language**: Rust
-- **Deployment**: Scaleway Container Serverless  
-- **CI/CD**: GitHub Actions
-- **Development**: Test-Driven Development approach
-- **Container**: Distroless Debian base image
+See [CLAUDE.md](CLAUDE.md) for architecture details and deployment instructions.
 
 ## License
 
-Licensed under either of:
-- Apache License, Version 2.0
-- MIT License
-
-at your option.
+Licensed under either of Apache License 2.0 or MIT License, at your option.
