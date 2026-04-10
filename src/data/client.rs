@@ -14,9 +14,9 @@ use tracing::{debug, info};
 const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-emplacement-des-stations/records";
 const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records";
 
-// Cache TTLs
-const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
-const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
+// How long to keep each dataset in the in-process cache before re-fetching
+const REFERENCE_CACHE_TTL_MINUTES: i64 = 5;
+const REALTIME_CACHE_TTL_MINUTES: i64 = 2;
 
 #[derive(Debug)]
 pub struct VelibDataClient {
@@ -80,7 +80,7 @@ impl VelibDataClient {
 
         let mut all_stations = Vec::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100;
 
         loop {
             let query_params = &[
@@ -99,7 +99,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -110,7 +110,7 @@ impl VelibDataClient {
 
             offset += limit;
             if records.len() < limit {
-                break; // Last page
+                break;
             }
         }
 
@@ -138,7 +138,7 @@ impl VelibDataClient {
 
         let mut all_status = HashMap::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100;
 
         loop {
             let query_params = &[
@@ -157,7 +157,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -168,7 +168,7 @@ impl VelibDataClient {
 
             offset += limit;
             if records.len() < limit {
-                break; // Last page
+                break;
             }
         }
 
@@ -238,7 +238,6 @@ impl VelibDataClient {
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
             as u16;
 
-        // Parse coordinates from coordonnees_geo
         let geo_point = record["coordonnees_geo"]
             .as_object()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
@@ -251,21 +250,14 @@ impl VelibDataClient {
             .as_f64()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
 
-        let coordinates = crate::types::Coordinates::new(latitude, longitude);
-
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
+        // ServiceCapabilities fields are not exposed by the Paris Open Data API;
+        // the struct defaults to all-false until the API provides this information.
         Ok(StationReference {
             station_code,
             name,
-            coordinates,
+            coordinates: crate::types::Coordinates::new(latitude, longitude),
             capacity,
-            capabilities,
+            capabilities: ServiceCapabilities::default(),
         })
     }
 
@@ -277,12 +269,9 @@ impl VelibDataClient {
             .to_string();
 
         let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
-
         let electric_bikes = record["ebike"].as_u64().unwrap_or(0) as u16;
-
         let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
 
-        // Parse status
         let status_str = record["is_installed"].as_str().unwrap_or("NON");
 
         let status = match status_str {
