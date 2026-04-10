@@ -11,13 +11,15 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 
 ## Quick Start - Install with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
+Install and configure the server:
 
 ```bash
-# Install and configure the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+PORT=3000 velib-mcp &
+claude config add-server velib-mcp "http://localhost:3000/mcp"
 ```
+
+The server is configured via environment variables (see [Configuration](#configuration)).
 
 Then use in Claude Code:
 ```
@@ -45,6 +47,20 @@ This project exposes two key Parisian datasets through MCP:
 - `get_area_statistics`: Get aggregated statistics for a geographic area
 - `plan_bike_journey`: Plan a bike journey with pickup and dropoff suggestions
 
+## Configuration
+
+The server reads its listen address from two environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IP`     | `0.0.0.0` | IP address to bind |
+| `PORT`   | `8080`    | TCP port to listen on |
+
+Example:
+```bash
+IP=127.0.0.1 PORT=9000 velib-mcp
+```
+
 ## Integration with Other AI Tools
 
 <details>
@@ -52,23 +68,22 @@ This project exposes two key Parisian datasets through MCP:
 
 ### ChatGPT
 ```bash
-# Install server
+# Install and start the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
+PORT=8080 velib-mcp
 # Configure in ChatGPT Custom Instructions or use via API
 ```
 
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+
+Add to Cursor's `settings.json`. The server must be started separately before
+launching Cursor.
+
+```json
 {
   "mcp.servers": {
     "velib": {
-      "command": "velib-mcp",
-      "args": ["--port", "8080"]
+      "url": "http://localhost:8080/mcp"
     }
   }
 }
@@ -76,17 +91,18 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 
 ### Le Chat / Mistral
 ```bash
-# Install server
+# Install and start the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
+PORT=8080 velib-mcp
+# Then point your Mistral integration at http://localhost:8080/mcp
 ```
 
 ### Windsurf
 ```bash
-# Install server
+# Install and start the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
+PORT=8080 velib-mcp
+# Configure in Windsurf MCP settings pointing to http://localhost:8080/mcp
 ```
 
 </details>
@@ -116,10 +132,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo audit
 ```
 
-### Podman
+### Container
 
 ```bash
-# Build container image
+# Build image (uses Podman; substitute docker if preferred)
 podman build -t velib-mcp .
 
 # Run container
@@ -133,7 +149,7 @@ The project is configured for deployment to Scaleway Container Serverless via Gi
 ## Architecture
 
 - **Language**: Rust
-- **Deployment**: Scaleway Container Serverless  
+- **Deployment**: Scaleway Container Serverless
 - **CI/CD**: GitHub Actions
 - **Development**: Test-Driven Development approach
 - **Container**: Distroless Debian base image
