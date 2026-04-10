@@ -15,8 +15,11 @@ const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/cat
 const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records";
 
 // Cache TTLs
-const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
-const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
+const REFERENCE_CACHE_TTL_MINUTES: i64 = 5;
+const REALTIME_CACHE_TTL_MINUTES: i64 = 2;
+
+// Number of records requested per API page
+const API_PAGE_SIZE: usize = 100;
 
 #[derive(Debug)]
 pub struct VelibDataClient {
@@ -66,11 +69,53 @@ impl VelibDataClient {
         }
     }
 
+    /// Fetch all pages from a paginated API endpoint, calling `parse_record` on each item.
+    ///
+    /// Records that fail to parse are silently skipped (logged upstream callers can add
+    /// tracing if needed).  Returns when a page comes back with fewer items than the page
+    /// size, signalling the last page.
+    async fn fetch_paginated<T, F>(&self, url: &str, mut parse_record: F) -> Result<Vec<T>>
+    where
+        F: FnMut(&Value) -> Result<T>,
+    {
+        let mut results = Vec::new();
+        let mut offset = 0;
+
+        loop {
+            let query_params = &[
+                ("limit", &API_PAGE_SIZE.to_string()),
+                ("offset", &offset.to_string()),
+            ];
+
+            let response = self.client.get_with_query(url, query_params).await?;
+            let json: Value = response.json().await?;
+            let records = json["results"]
+                .as_array()
+                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+
+            if records.is_empty() {
+                break;
+            }
+
+            for record in records {
+                if let Ok(item) = parse_record(record) {
+                    results.push(item);
+                }
+            }
+
+            offset += API_PAGE_SIZE;
+            if records.len() < API_PAGE_SIZE {
+                break;
+            }
+        }
+
+        Ok(results)
+    }
+
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
 
-        // Check cache first
         if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
@@ -78,57 +123,22 @@ impl VelibDataClient {
 
         info!("Fetching reference stations from Paris Open Data API");
 
-        let mut all_stations = Vec::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
+        let stations = self
+            .fetch_paginated(VELIB_STATIONS_URL, |r| self.parse_reference_station(r))
+            .await?;
 
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_STATIONS_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
-                if let Ok(station) = self.parse_reference_station(record) {
-                    all_stations.push(station);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
-
-        info!("Fetched {} reference stations", all_stations.len());
-
-        // Cache the results
+        info!("Fetched {} reference stations", stations.len());
         self.reference_cache
-            .insert(CACHE_KEY.to_string(), all_stations.clone())
+            .insert(CACHE_KEY.to_string(), stations.clone())
             .await;
 
-        Ok(all_stations)
+        Ok(stations)
     }
 
     /// Fetch real-time station status data
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
         const CACHE_KEY: &str = "all_realtime_status";
 
-        // Check cache first
         if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
@@ -136,45 +146,13 @@ impl VelibDataClient {
 
         info!("Fetching real-time status from Paris Open Data API");
 
-        let mut all_status = HashMap::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
+        let pairs = self
+            .fetch_paginated(VELIB_REALTIME_URL, |r| self.parse_realtime_status(r))
+            .await?;
 
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_REALTIME_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
-                if let Ok((station_code, status)) = self.parse_realtime_status(record) {
-                    all_status.insert(station_code, status);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
+        let all_status: HashMap<String, RealTimeStatus> = pairs.into_iter().collect();
 
         info!("Fetched real-time status for {} stations", all_status.len());
-
-        // Cache the results
         self.realtime_cache
             .insert(CACHE_KEY.to_string(), all_status.clone())
             .await;
@@ -238,7 +216,6 @@ impl VelibDataClient {
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
             as u16;
 
-        // Parse coordinates from coordonnees_geo
         let geo_point = record["coordonnees_geo"]
             .as_object()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
@@ -251,21 +228,12 @@ impl VelibDataClient {
             .as_f64()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
 
-        let coordinates = crate::types::Coordinates::new(latitude, longitude);
-
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
         Ok(StationReference {
             station_code,
             name,
-            coordinates,
+            coordinates: crate::types::Coordinates::new(latitude, longitude),
             capacity,
-            capabilities,
+            capabilities: ServiceCapabilities::default(),
         })
     }
 
@@ -277,19 +245,13 @@ impl VelibDataClient {
             .to_string();
 
         let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
-
         let electric_bikes = record["ebike"].as_u64().unwrap_or(0) as u16;
-
         let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
 
-        // Parse status
-        let status_str = record["is_installed"].as_str().unwrap_or("NON");
-
-        let status = match status_str {
+        let status = match record["is_installed"].as_str().unwrap_or("NON") {
             "OUI" => {
                 let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
                 let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
-
                 if is_renting && is_returning {
                     StationStatus::Open
                 } else {
@@ -299,18 +261,16 @@ impl VelibDataClient {
             _ => StationStatus::Closed,
         };
 
-        // Parse last update time
-        let default_time = Utc::now().to_rfc3339();
-        let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
-
-        let last_update = DateTime::parse_from_rfc3339(last_update_str)
-            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        let last_update = record["duedate"]
+            .as_str()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
 
         let bikes = BikeAvailability::new(mechanical_bikes, electric_bikes);
-
-        let real_time_status = RealTimeStatus::new(bikes, available_docks, status, last_update);
-
-        Ok((station_code, real_time_status))
+        Ok((
+            station_code,
+            RealTimeStatus::new(bikes, available_docks, status, last_update),
+        ))
     }
 
     /// Clean up expired cache entries
