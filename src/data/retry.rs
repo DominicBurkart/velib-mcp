@@ -280,40 +280,6 @@ impl RetryableHttpClient {
         }
     }
 
-    /// Make a GET request with retry logic
-    pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
-        debug!("Making GET request to: {}", url);
-
-        self.retry_policy
-            .execute(|| async {
-                let response = self.client.get(url).send().await?;
-
-                debug!("Received response: {} {}", response.status(), url);
-
-                // Check for rate limiting
-                if response.status() == 429 {
-                    let retry_after = extract_retry_after_from_response(&response);
-                    warn!(
-                        "Rate limited (429) for {}{}",
-                        url,
-                        retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {seconds}s"
-                        ))
-                    );
-                    return Err(create_rate_limited_error(&response));
-                }
-
-                // Check for other HTTP errors
-                if !response.status().is_success() {
-                    warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
-                }
-
-                Ok(response)
-            })
-            .await
-    }
-
     /// Make a GET request with query parameters and retry logic
     pub async fn get_with_query<T>(&self, url: &str, query: &T) -> Result<reqwest::Response>
     where
@@ -349,12 +315,6 @@ impl RetryableHttpClient {
                 Ok(response)
             })
             .await
-    }
-
-    /// Get the underlying reqwest client
-    #[must_use]
-    pub fn client(&self) -> &reqwest::Client {
-        &self.client
     }
 }
 

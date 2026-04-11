@@ -8,7 +8,7 @@ use crate::mcp::types::{
     PlanBikeJourneyInput, PlanBikeJourneyOutput, SearchMetadata, SearchStationsByNameInput,
     SearchStationsByNameOutput, StationWithDistance, TextSearchMetadata,
 };
-use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation, PARIS_CITY_HALL};
 use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::Instant;
@@ -16,12 +16,6 @@ use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
-
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
 
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
@@ -397,12 +391,6 @@ impl McpToolHandler {
         })
     }
 
-    /// Clean up expired cache entries in the data client
-    pub async fn cleanup_cache(&self) {
-        let data_client = self.data_client.read().await;
-        data_client.cleanup_cache().await;
-    }
-
     /// Get cache statistics from the data client
     pub async fn cache_stats(&self) -> (usize, usize) {
         let data_client = self.data_client.read().await;
@@ -430,14 +418,6 @@ impl McpToolHandler {
     ) -> Result<Vec<crate::types::VelibStation>> {
         let mut data_client = self.data_client.write().await;
         data_client.get_all_stations(include_realtime).await
-    }
-
-    /// Test connectivity to data sources for health checks
-    pub async fn test_connectivity(&self) -> Result<()> {
-        let mut data_client = self.data_client.write().await;
-        // Simple connectivity test by fetching reference data
-        data_client.get_all_stations(false).await?;
-        Ok(())
     }
 }
 
