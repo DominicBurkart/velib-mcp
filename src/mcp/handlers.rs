@@ -8,7 +8,7 @@ use crate::mcp::types::{
     PlanBikeJourneyInput, PlanBikeJourneyOutput, SearchMetadata, SearchStationsByNameInput,
     SearchStationsByNameOutput, StationWithDistance, TextSearchMetadata,
 };
-use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation, PARIS_CITY_HALL};
 use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::Instant;
@@ -16,12 +16,6 @@ use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
-
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
 
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
@@ -54,7 +48,6 @@ impl McpToolHandler {
     ) -> Result<FindNearbyStationsOutput> {
         let start_time = Instant::now();
 
-        // Validate input parameters
         if input.radius_meters > MAX_SEARCH_RADIUS {
             return Err(Error::SearchRadiusTooLarge {
                 radius: input.radius_meters,
@@ -77,33 +70,26 @@ impl McpToolHandler {
             });
         }
 
-        // Enforce 50km distance limit from Paris City Hall
         if !query_point.is_within_paris_service_area() {
             let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
             return Err(Error::OutsideServiceArea { distance_km });
         }
 
-        // Fetch live station data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations by distance and bike type
         let mut nearby_stations: Vec<StationWithDistance> = all_stations
             .into_iter()
             .filter_map(|station| {
                 let distance = query_point.distance_to(&station.reference.coordinates) as u32;
-
-                // Check if within search radius
                 if distance <= input.radius_meters {
-                    // Check if station has the requested bike type (if specified)
                     let has_requested_bikes = match &input.availability_filter {
                         Some(filter) => match &filter.bike_type {
                             Some(bike_type) => station.has_available_bikes(bike_type),
                             None => true,
                         },
-                        None => true, // No filter specified
+                        None => true,
                     };
-
                     if has_requested_bikes && station.is_operational() {
                         Some(StationWithDistance {
                             station,
@@ -118,10 +104,7 @@ impl McpToolHandler {
             })
             .collect();
 
-        // Sort by distance
         nearby_stations.sort_by_key(|s| s.straight_line_distance_meters);
-
-        // Limit results
         nearby_stations.truncate(input.limit as usize);
 
         let stations = nearby_stations;
@@ -171,7 +154,6 @@ impl McpToolHandler {
             });
         }
 
-        // Fetch live station data and search by name
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
@@ -193,10 +175,7 @@ impl McpToolHandler {
             })
             .collect();
 
-        // Sort by name for consistent results
         matching_stations.sort_by(|a, b| a.reference.name.cmp(&b.reference.name));
-
-        // Limit results
         matching_stations.truncate(input.limit as usize);
 
         let stations = matching_stations;
@@ -217,17 +196,14 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        // Fetch live station data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations within the specified bounds
         let area_stations: Vec<&VelibStation> = all_stations
             .iter()
             .filter(|station| input.bounds.contains(&station.reference.coordinates))
             .collect();
 
-        // Calculate area statistics from live data
         let total_stations = area_stations.len() as u32;
         let operational_stations = area_stations
             .iter()
@@ -293,7 +269,6 @@ impl McpToolHandler {
             });
         }
 
-        // Enforce 50km distance limit from Paris City Hall for both origin and destination
         if !input.origin.is_within_paris_service_area() {
             let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
             return Err(Error::OutsideServiceArea { distance_km });
@@ -304,19 +279,15 @@ impl McpToolHandler {
             return Err(Error::OutsideServiceArea { distance_km });
         }
 
-        // Find nearby stations for pickup and dropoff using live data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Get preferences or use defaults
         let preferences = input.preferences.unwrap_or_default();
 
-        // Find pickup stations near origin
         let mut pickup_candidates: Vec<StationWithDistance> = all_stations
             .iter()
             .filter_map(|station| {
                 let distance = input.origin.distance_to(&station.reference.coordinates) as u32;
-
                 if distance <= preferences.max_walk_distance
                     && station.is_operational()
                     && station.has_available_bikes(&preferences.bike_type)
@@ -334,7 +305,6 @@ impl McpToolHandler {
         pickup_candidates.sort_by_key(|s| s.straight_line_distance_meters);
         pickup_candidates.truncate(3);
 
-        // Find dropoff stations near destination
         let mut dropoff_candidates: Vec<StationWithDistance> = all_stations
             .iter()
             .filter_map(|station| {
@@ -342,11 +312,9 @@ impl McpToolHandler {
                     .destination
                     .distance_to(&station.reference.coordinates)
                     as u32;
-
                 if distance <= preferences.max_walk_distance
                     && station.is_operational()
                     && station.has_available_docks(1)
-                // At least 1 dock available
                 {
                     Some(StationWithDistance {
                         station: station.clone(),
@@ -364,15 +332,13 @@ impl McpToolHandler {
         let pickup_stations = pickup_candidates;
         let dropoff_stations = dropoff_candidates;
 
-        // Generate journey recommendations
         let mut recommendations = Vec::new();
 
         if !pickup_stations.is_empty() && !dropoff_stations.is_empty() {
-            // Create recommendations by pairing closest pickup with closest dropoff
             let best_pickup = &pickup_stations[0];
             let best_dropoff = &dropoff_stations[0];
 
-            // Calculate confidence score based on walking distances
+            // Confidence decreases the further the walk distances are from zero
             let max_walk = f64::from(preferences.max_walk_distance);
             let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
             let dropoff_walk_ratio =
@@ -395,12 +361,6 @@ impl McpToolHandler {
                 recommendations,
             },
         })
-    }
-
-    /// Clean up expired cache entries in the data client
-    pub async fn cleanup_cache(&self) {
-        let data_client = self.data_client.read().await;
-        data_client.cleanup_cache().await;
     }
 
     /// Get cache statistics from the data client
@@ -432,13 +392,6 @@ impl McpToolHandler {
         data_client.get_all_stations(include_realtime).await
     }
 
-    /// Test connectivity to data sources for health checks
-    pub async fn test_connectivity(&self) -> Result<()> {
-        let mut data_client = self.data_client.write().await;
-        // Simple connectivity test by fetching reference data
-        data_client.get_all_stations(false).await?;
-        Ok(())
-    }
 }
 
 impl Default for JourneyPreferences {

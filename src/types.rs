@@ -48,16 +48,16 @@ impl Coordinates {
     /// Latitude: 48.8565° N, Longitude: 2.3514° E
     #[must_use]
     pub fn is_within_paris_service_area(&self) -> bool {
-        const PARIS_CITY_HALL_LAT: f64 = 48.8565;
-        const PARIS_CITY_HALL_LON: f64 = 2.3514;
         const MAX_DISTANCE_METERS: f64 = 50_000.0; // 50km
-
-        let city_hall = Coordinates::new(PARIS_CITY_HALL_LAT, PARIS_CITY_HALL_LON);
-        let distance = self.distance_to(&city_hall);
-
-        distance <= MAX_DISTANCE_METERS
+        self.distance_to(&PARIS_CITY_HALL) <= MAX_DISTANCE_METERS
     }
 }
+
+/// Paris City Hall coordinates — reference point for service area checks.
+pub const PARIS_CITY_HALL: Coordinates = Coordinates {
+    latitude: 48.8565,
+    longitude: 2.3514,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StationStatus {
@@ -67,13 +67,6 @@ pub enum StationStatus {
     Closed,
     #[serde(rename = "MAINTENANCE")]
     Maintenance,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ServiceCapabilities {
-    pub accepts_credit_card: bool,
-    pub has_charging_station: bool,
-    pub is_virtual_station: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -155,7 +148,6 @@ pub struct StationReference {
     pub name: String,
     pub coordinates: Coordinates,
     pub capacity: u16,
-    pub capabilities: ServiceCapabilities,
 }
 
 impl StationReference {
@@ -283,16 +275,6 @@ impl VelibStation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DataSource {
-    #[serde(rename = "paris_open_data")]
-    ParisOpenData,
-    #[serde(rename = "cache")]
-    Cache,
-    #[serde(rename = "fallback")]
-    Fallback,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,7 +353,7 @@ mod tests {
                 name: "Test Station".to_string(),
                 coordinates: Coordinates::new(48.8566, 2.3522),
                 capacity: 20,
-                capabilities: ServiceCapabilities::default(),
+
             },
             real_time: Some(RealTimeStatus {
                 bikes,
@@ -395,7 +377,7 @@ mod tests {
                 name: "Test Station".to_string(),
                 coordinates: Coordinates::new(48.8566, 2.3522),
                 capacity: 20,
-                capabilities: ServiceCapabilities::default(),
+
             },
             real_time: Some(RealTimeStatus {
                 bikes: BikeAvailability::new(5, 3),
@@ -418,7 +400,7 @@ mod tests {
                 name: "Test Station".to_string(),
                 coordinates: Coordinates::new(48.8566, 2.3522),
                 capacity: 10,
-                capabilities: ServiceCapabilities::default(),
+
             },
             real_time: Some(RealTimeStatus {
                 bikes: BikeAvailability::new(8, 5), // 13 bikes
@@ -439,7 +421,6 @@ mod tests {
             name: "Overflow Test Station".to_string(),
             coordinates: Coordinates::new(48.8566, 2.3522),
             capacity: 300, // This should fail validation
-            capabilities: ServiceCapabilities::default(),
         };
 
         assert!(reference.validate().is_err());

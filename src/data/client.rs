@@ -1,8 +1,7 @@
 use crate::data::cache::InMemoryCache;
 use crate::data::retry::{RetryConfig, RetryPolicy, RetryableHttpClient};
 use crate::types::{
-    BikeAvailability, RealTimeStatus, ServiceCapabilities, StationReference, StationStatus,
-    VelibStation,
+    BikeAvailability, RealTimeStatus, StationReference, StationStatus, VelibStation,
 };
 use crate::{Error, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -70,7 +69,6 @@ impl VelibDataClient {
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
 
-        // Check cache first
         if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
@@ -80,7 +78,7 @@ impl VelibDataClient {
 
         let mut all_stations = Vec::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100; // API page size
 
         loop {
             let query_params = &[
@@ -99,7 +97,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -110,13 +108,12 @@ impl VelibDataClient {
 
             offset += limit;
             if records.len() < limit {
-                break; // Last page
+                break;
             }
         }
 
         info!("Fetched {} reference stations", all_stations.len());
 
-        // Cache the results
         self.reference_cache
             .insert(CACHE_KEY.to_string(), all_stations.clone())
             .await;
@@ -128,7 +125,6 @@ impl VelibDataClient {
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
         const CACHE_KEY: &str = "all_realtime_status";
 
-        // Check cache first
         if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
@@ -138,7 +134,7 @@ impl VelibDataClient {
 
         let mut all_status = HashMap::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100; // API page size
 
         loop {
             let query_params = &[
@@ -157,7 +153,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -168,13 +164,12 @@ impl VelibDataClient {
 
             offset += limit;
             if records.len() < limit {
-                break; // Last page
+                break;
             }
         }
 
         info!("Fetched real-time status for {} stations", all_status.len());
 
-        // Cache the results
         self.realtime_cache
             .insert(CACHE_KEY.to_string(), all_status.clone())
             .await;
@@ -253,19 +248,11 @@ impl VelibDataClient {
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
 
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
         Ok(StationReference {
             station_code,
             name,
             coordinates,
             capacity,
-            capabilities,
         })
     }
 
@@ -282,14 +269,11 @@ impl VelibDataClient {
 
         let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
 
-        // Parse status
         let status_str = record["is_installed"].as_str().unwrap_or("NON");
-
         let status = match status_str {
             "OUI" => {
                 let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
                 let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
-
                 if is_renting && is_returning {
                     StationStatus::Open
                 } else {
@@ -299,7 +283,6 @@ impl VelibDataClient {
             _ => StationStatus::Closed,
         };
 
-        // Parse last update time
         let default_time = Utc::now().to_rfc3339();
         let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
 

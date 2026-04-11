@@ -7,10 +7,8 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use super::handlers::McpToolHandler;
@@ -19,15 +17,7 @@ use crate::{Error, Result};
 
 pub struct McpServer {
     tool_handler: Arc<McpToolHandler>,
-    clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
     start_time: Instant,
-}
-
-#[derive(Debug)]
-struct WebSocketClient {
-    #[allow(dead_code)]
-    id: String,
-    // Additional client metadata can be added here
 }
 
 impl Default for McpServer {
@@ -41,14 +31,12 @@ impl McpServer {
     pub fn new() -> Self {
         Self {
             tool_handler: Arc::new(McpToolHandler::new()),
-            clients: Arc::new(RwLock::new(HashMap::new())),
             start_time: Instant::now(),
         }
     }
 
     pub fn router(&self) -> Router {
         let handler = Arc::clone(&self.tool_handler);
-        let clients = Arc::clone(&self.clients);
 
         Router::new()
             .route(
@@ -90,10 +78,9 @@ impl McpServer {
                 "/mcp/ws",
                 get({
                     let handler = Arc::clone(&handler);
-                    let clients = Arc::clone(&clients);
                     move |ws: WebSocketUpgrade| async move {
                         ws.on_upgrade(move |socket| {
-                            Self::handle_websocket_connection(socket, handler, clients)
+                            Self::handle_websocket_connection(socket, handler)
                         })
                     }
                 }),
@@ -114,21 +101,9 @@ impl McpServer {
     async fn handle_websocket_connection(
         mut socket: WebSocket,
         handler: Arc<McpToolHandler>,
-        clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
     ) {
         let client_id = uuid::Uuid::new_v4().to_string();
         info!("New WebSocket connection: {}", client_id);
-
-        // Add client to the map
-        {
-            let mut clients_guard = clients.write().await;
-            clients_guard.insert(
-                client_id.clone(),
-                WebSocketClient {
-                    id: client_id.clone(),
-                },
-            );
-        }
 
         // Handle messages
         while let Some(msg) = socket.recv().await {
@@ -205,12 +180,6 @@ impl McpServer {
                 }
                 _ => {} // Ignore other message types
             }
-        }
-
-        // Remove client from the map
-        {
-            let mut clients_guard = clients.write().await;
-            clients_guard.remove(&client_id);
         }
 
         info!("WebSocket connection terminated: {}", client_id);

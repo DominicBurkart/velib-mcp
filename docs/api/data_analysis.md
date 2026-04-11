@@ -1,171 +1,72 @@
-# Analyse des Données Velib - Phase 1
+# Velib Data Analysis
 
-## Vue d'ensemble
+## Overview
 
-Ce document analyse les deux jeux de données Velib disponibles via l'API Open Data de Paris :
+Two datasets from the Paris Open Data API:
 
-1. **Disponibilité temps réel** : État actuel des stations (vélos/emplacements disponibles)
-2. **Emplacements des stations** : Données de référence statiques des stations
+1. **Real-time availability** — current bike/dock counts per station
+2. **Station locations** — static reference data for all stations
 
-## Dataset 1 : Disponibilité Temps Réel
+## Dataset 1: Real-time Availability
 
-### Endpoint API
+**Endpoint**
 ```
-https://opendata.paris.fr/api/records/1.0/search/?dataset=velib-disponibilite-en-temps-reel
+https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records
 ```
 
-### Caractéristiques Techniques
-- **Format** : JSON (UTF-8)
-- **Standard** : GBFS 1.0
-- **Fréquence de mise à jour** : Chaque minute
-- **Accès** : Sans clé d'authentification
-- **Couverture** : ~1,400 stations sur 55 communes
+**Characteristics**
+- Format: JSON (UTF-8), GBFS 1.0
+- Update frequency: every minute
+- No authentication required
+- Coverage: ~1,400 stations across 55 communes
 
-### Structure des Données
+**Fields**
 
-#### Champs Principaux
-| Champ | Type | Description | Exemple |
+| Field | Type | Description | Example |
 |-------|------|-------------|---------|
-| `name` | string | Nom de la station | "Rouget de L'isle - Watteau" |
-| `stationcode` | string | Identifiant unique de station | "32017" |
-| `coordonnees_geo` | array[float] | Coordonnées [lat, lon] | [48.936, 2.358] |
-| `capacity` | integer | Capacité totale de la station | 22 |
-| `numbikesavailable` | integer | Vélos disponibles (total) | 15 |
-| `numdocksavailable` | integer | Emplacements libres | 7 |
+| `stationcode` | string | Unique station ID | `"32017"` |
+| `name` | string | Station name | `"Rouget de L'isle - Watteau"` |
+| `coordonnees_geo` | object | `{lat, lon}` | `{lat: 48.936, lon: 2.358}` |
+| `capacity` | integer | Total dock count | `22` |
+| `numbikesavailable` | integer | Total available bikes | `15` |
+| `numdocksavailable` | integer | Available docks | `7` |
+| `mechanical` | integer | Available mechanical bikes | `8` |
+| `ebike` | integer | Available electric bikes | `4` |
+| `is_installed` | string | `"OUI"` / `"NON"` | `"OUI"` |
+| `is_renting` | string | `"OUI"` / `"NON"` | `"OUI"` |
+| `is_returning` | string | `"OUI"` / `"NON"` | `"OUI"` |
+| `duedate` | string | ISO 8601 last-update time | `"2025-06-14T19:31:22+00:00"` |
+| `nom_arrondissement_communes` | string | Municipality/arrondissement | `"Issy-les-Moulineaux"` |
+| `code_insee_commune` | string | INSEE administrative code | `"92040"` |
 
-#### Détail par Type de Vélo
-| Champ | Type | Description |
-|-------|------|-------------|
-| `ebike` | integer | Vélos électriques disponibles |
-| `mechanical` | integer | Vélos mécaniques disponibles |
+**Constraints**
+- `numbikesavailable` = `mechanical` + `ebike`
+- `numdocksavailable` = `capacity` - `numbikesavailable`
+- Coordinate precision: 7–8 decimal places (~1 m)
+- Observed capacity range: 12–60 docks
 
-#### États de la Station
-| Champ | Type | Valeurs | Description |
-|-------|------|---------|-------------|
-| `is_renting` | string | "OUI"/"NON" | Location autorisée |
-| `is_installed` | string | "OUI"/"NON" | Station opérationnelle |
-| `is_returning` | string | "OUI"/"NON" | Retour autorisé |
+## Dataset 2: Station Locations
 
-#### Données Temporelles
-| Champ | Type | Format | Exemple |
-|-------|------|--------|---------|
-| `duedate` | string | ISO 8601 | "2025-06-14T19:31:22+00:00" |
-| `record_timestamp` | string | ISO 8601 | "2025-06-14T19:31:22+00:00" |
-
-#### Informations Administratives
-| Champ | Type | Description |
-|-------|------|-------------|
-| `nom_arrondissement_communes` | string | Commune/arrondissement |
-| `code_insee_commune` | string | Code INSEE administratif |
-
-### Contraintes et Validations
-- **Coordonnées** : Précision décimale de 7-8 places (niveau mètre)
-- **Capacité** : Observée entre 12-60 emplacements
-- **Disponibilité** : 0 ≤ `numbikesavailable` ≤ `capacity`
-- **Cohérence** : `numbikesavailable` = `ebike` + `mechanical`
-- **Emplacements** : `numdocksavailable` = `capacity` - `numbikesavailable`
-
-## Dataset 2 : Emplacements des Stations
-
-### Endpoint API
+**Endpoint**
 ```
-https://opendata.paris.fr/api/records/1.0/search/?dataset=velib-emplacement-des-stations
+https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-emplacement-des-stations/records
 ```
 
-### Caractéristiques Techniques
-- **Format** : JSON (UTF-8)
-- **Nature** : Données de référence statiques
-- **Mise à jour** : Occasionnelle (ajout/suppression de stations)
-- **Accès** : Sans clé d'authentification
+**Characteristics**
+- Static reference data; updated occasionally (station additions/removals)
+- No authentication required
 
-### Structure des Données
+**Fields**
 
-#### Champs de Référence
-| Champ | Type | Description | Exemple |
+| Field | Type | Description | Example |
 |-------|------|-------------|---------|
-| `stationcode` | string | Identifiant unique (même que temps réel) | "32017" |
-| `name` | string | Nom de localisation | "Basilique" |
-| `capacity` | integer | Capacité maximale | 22 |
-| `coordonnees_geo` | array[float] | Position [lat, lon] | [48.936, 2.358] |
+| `stationcode` | string | Unique station ID (matches real-time) | `"32017"` |
+| `name` | string | Station name | `"Basilique"` |
+| `capacity` | integer | Maximum capacity | `22` |
+| `coordonnees_geo` | object | `{lat, lon}` | `{lat: 48.936, lon: 2.358}` |
 
-### Relation entre les Datasets
+## Dataset Relationship
 
-#### Clé de Liaison
-- **Champ commun** : `stationcode`
-- **Cardinalité** : 1:1 (une station = un code unique)
-- **Intégrité** : Toutes les stations temps réel doivent avoir une référence
-
-#### Différences Fonctionnelles
-| Aspect | Temps Réel | Emplacements |
-|--------|------------|-------------|
-| **Fréquence** | Minute | Occasionnelle |
-| **Données** | État dynamique | Métadonnées statiques |
-| **Utilisation** | Planification immédiate | Référence géographique |
-
-## Opportunités d'Intégration MCP
-
-### Cas d'Usage Identifiés
-
-1. **Planification de trajets**
-   - Recherche de stations proches avec vélos disponibles
-   - Calcul d'itinéraires avec disponibilité temps réel
-
-2. **Analyse spatiale**
-   - Densité de stations par zone
-   - Rayons de couverture géographique
-
-3. **Monitoring d'état**
-   - Stations hors service ou pleines
-   - Tendances de disponibilité
-
-4. **Optimisation logistique**
-   - Répartition des vélos par type
-   - Prédiction de demande par zone
-
-### Défis Techniques
-
-1. **Synchronisation des données**
-   - Cohérence entre datasets
-   - Gestion des stations temporairement indisponibles
-
-2. **Performance**
-   - Cache intelligent pour données quasi-statiques
-   - Optimisation des requêtes géospatiales
-
-3. **Fiabilité**
-   - Gestion des pannes d'API
-   - Validation de la cohérence des données
-
-## Recommandations pour l'Architecture MCP
-
-### Modèle de Données Unifié
-```rust
-struct VelibStation {
-    // Référence statique
-    station_code: String,
-    name: String,
-    capacity: u16,
-    coordinates: (f64, f64), // (lat, lon)
-    
-    // État temps réel
-    available_bikes: u16,
-    available_ebikes: u16,
-    available_mechanical: u16,
-    available_docks: u16,
-    
-    // États opérationnels
-    is_renting: bool,
-    is_installed: bool,
-    is_returning: bool,
-    
-    // Métadonnées
-    commune: Option<String>,
-    insee_code: Option<String>,
-    last_updated: DateTime<Utc>,
-}
-```
-
-### Stratégie de Mise à Jour
-1. **Référence** : Synchronisation quotidienne des emplacements
-2. **Temps réel** : Polling toutes les 2-3 minutes (respect du rate limiting)
-3. **Cache** : TTL de 2 minutes pour les données temps réel
+- **Join key**: `stationcode` (1:1)
+- Real-time data joined to reference data in [`src/data/client.rs`](../../src/data/client.rs)
+- Cache TTLs: 2 min (real-time), 5 min (reference)
