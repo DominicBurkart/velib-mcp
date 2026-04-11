@@ -82,3 +82,121 @@ impl Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Each variant maps to a stable MCP JSON-RPC error code.  These codes are
+    // part of the public protocol contract – an AI client that receives a
+    // -32602 knows the *caller* made a bad request, whereas -32603 signals a
+    // server-side fault.  We pin every variant so a refactor can't silently
+    // change the semantics.
+
+    #[test]
+    fn invalid_coords_is_invalid_params() {
+        let e = Error::InvalidCoordinates {
+            latitude: 0.0,
+            longitude: 0.0,
+        };
+        assert_eq!(e.mcp_error_code(), -32602);
+        assert_eq!(e.error_type(), "invalid_coordinates");
+    }
+
+    #[test]
+    fn outside_service_area_is_invalid_params() {
+        let e = Error::OutsideServiceArea { distance_km: 60.0 };
+        assert_eq!(e.mcp_error_code(), -32602);
+        assert_eq!(e.error_type(), "outside_service_area");
+        // Display message should quote the distance
+        assert!(e.to_string().contains("60.0"));
+    }
+
+    #[test]
+    fn search_radius_too_large_is_invalid_params() {
+        let e = Error::SearchRadiusTooLarge {
+            radius: 6000,
+            max: 5000,
+        };
+        assert_eq!(e.mcp_error_code(), -32602);
+        assert_eq!(e.error_type(), "search_radius_too_large");
+        assert!(e.to_string().contains("6000"));
+        assert!(e.to_string().contains("5000"));
+    }
+
+    #[test]
+    fn result_limit_exceeded_is_invalid_params() {
+        let e = Error::ResultLimitExceeded { limit: 150, max: 100 };
+        assert_eq!(e.mcp_error_code(), -32602);
+        assert_eq!(e.error_type(), "result_limit_exceeded");
+        assert!(e.to_string().contains("150"));
+    }
+
+    #[test]
+    fn station_not_found_is_invalid_request() {
+        let e = Error::StationNotFound {
+            station_code: "99999".to_string(),
+        };
+        assert_eq!(e.mcp_error_code(), -32600);
+        assert_eq!(e.error_type(), "station_not_found");
+        assert!(e.to_string().contains("99999"));
+    }
+
+    #[test]
+    fn rate_limited_without_retry_after() {
+        let e = Error::RateLimited {
+            retry_after_seconds: None,
+        };
+        assert_eq!(e.mcp_error_code(), -32001);
+        assert_eq!(e.error_type(), "rate_limited");
+        // Should not mention "retry after" when value is absent
+        assert!(!e.to_string().contains("retry after"));
+    }
+
+    #[test]
+    fn rate_limited_with_retry_after() {
+        let e = Error::RateLimited {
+            retry_after_seconds: Some(30),
+        };
+        assert_eq!(e.mcp_error_code(), -32001);
+        assert!(e.to_string().contains("retry after 30s"));
+    }
+
+    #[test]
+    fn validation_error_is_invalid_params() {
+        let e = Error::Validation("bad input".to_string());
+        assert_eq!(e.mcp_error_code(), -32602);
+        assert_eq!(e.error_type(), "validation_error");
+    }
+
+    #[test]
+    fn mcp_protocol_error_is_internal() {
+        let e = Error::McpProtocol("unknown method".to_string());
+        assert_eq!(e.mcp_error_code(), -32603);
+        assert_eq!(e.error_type(), "mcp_protocol_error");
+    }
+
+    #[test]
+    fn cache_error_is_internal() {
+        let e = Error::Cache("lock poisoned".to_string());
+        assert_eq!(e.mcp_error_code(), -32603);
+        assert_eq!(e.error_type(), "cache_error");
+    }
+
+    #[test]
+    fn internal_error_is_internal() {
+        let e = Error::Internal(anyhow::anyhow!("unexpected failure"));
+        assert_eq!(e.mcp_error_code(), -32603);
+        assert_eq!(e.error_type(), "internal_error");
+        assert!(e.to_string().contains("unexpected failure"));
+    }
+
+    #[test]
+    fn json_parse_error_is_parse_error() {
+        let raw: std::result::Result<serde_json::Value, serde_json::Error> =
+            serde_json::from_str("not json");
+        let e: Error = raw.unwrap_err().into();
+        assert_eq!(e.mcp_error_code(), -32700);
+        assert_eq!(e.error_type(), "json_error");
+    }
+}

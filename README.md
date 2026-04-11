@@ -1,20 +1,14 @@
 # Velib MCP Server
 
-[![Test Coverage](https://img.shields.io/badge/coverage-check%20actions-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
 [![Tests](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![Security Audit](https://img.shields.io/badge/security-audit%20passing-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/DominicBurkart/velib-mcp#license)
-[![Rust Version](https://img.shields.io/badge/rust-latest%20stable-orange)](https://www.rust-lang.org/)
 [![Deploy Status](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/DominicBurkart/velib-mcp#license)
 
-A high-performance Model Context Protocol (MCP) server providing access to Paris Velib bike sharing data for AI assistants.
+A Model Context Protocol (MCP) server providing real-time Paris Velib bike sharing data for AI assistants.
 
 ## Quick Start - Install with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
-
 ```bash
-# Install and configure the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
 claude config add-server velib-mcp "cargo run --release -- --port 3000"
 ```
@@ -28,7 +22,7 @@ Then use in Claude Code:
 
 ## Overview
 
-This project exposes two key Parisian datasets through MCP:
+Exposes two Parisian datasets via MCP:
 - **Real-time availability**: Current bike and dock availability at stations
 - **Station locations**: Geographic information and details about all Velib stations
 
@@ -39,7 +33,7 @@ This project exposes two key Parisian datasets through MCP:
 
 ## Available Tools
 
-- `find_nearby_stations`: Find Velib stations within a radius of coordinates
+- `find_nearby_stations`: Find stations within a radius of coordinates
 - `get_station_by_code`: Get detailed information about a specific station
 - `search_stations_by_name`: Search stations by name with optional fuzzy matching
 - `get_area_statistics`: Get aggregated statistics for a geographic area
@@ -47,23 +41,20 @@ This project exposes two key Parisian datasets through MCP:
 
 ## Integration with Other AI Tools
 
+First, install the server binary:
+```bash
+cargo install --git https://github.com/dominicburkart/velib-mcp.git
+```
+
 <details>
 <summary>Click to expand integration guides</summary>
 
 ### ChatGPT
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
-```
+Run `velib-mcp` and configure via ChatGPT Custom Instructions or the API.
 
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+Add to Cursor's `settings.json`:
+```json
 {
   "mcp.servers": {
     "velib": {
@@ -75,19 +66,10 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 ```
 
 ### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
-```
+Run `velib-mcp --port 8080` and use via API calls.
 
 ### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+Run `velib-mcp` and configure in Windsurf MCP settings.
 
 </details>
 
@@ -119,23 +101,19 @@ cargo audit
 ### Podman
 
 ```bash
-# Build container image
 podman build -t velib-mcp .
-
-# Run container
 podman run -p 8080:8080 velib-mcp
 ```
 
 ## Deployment
 
-The project is configured for deployment to Scaleway Container Serverless via GitHub Actions on pushes to the main branch.
+Configured for deployment to Scaleway Container Serverless via GitHub Actions on pushes to `main`.
 
 ## Architecture
 
 - **Language**: Rust
-- **Deployment**: Scaleway Container Serverless  
+- **Deployment**: Scaleway Container Serverless
 - **CI/CD**: GitHub Actions
-- **Development**: Test-Driven Development approach
 - **Container**: Distroless Debian base image
 
 ## License
