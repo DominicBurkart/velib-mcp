@@ -1,18 +1,5 @@
-use crate::types::{BikeTypeFilter, Coordinates, DataSource, VelibStation};
-use chrono::{DateTime, Utc};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeographicQuery {
-    pub center: Coordinates,
-    pub radius_meters: u32,
-    #[serde(default = "default_limit")]
-    pub limit: u16,
-}
-
-fn default_limit() -> u16 {
-    50
-}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
@@ -28,42 +15,6 @@ pub struct AvailabilityFilter {
 
 fn default_true() -> bool {
     true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StationQuery {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub geographic: Option<GeographicQuery>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub availability: Option<AvailabilityFilter>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub station_codes: Option<Vec<String>>,
-    #[serde(default = "default_true")]
-    pub include_real_time: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaginationInfo {
-    pub offset: usize,
-    pub limit: usize,
-    pub has_more: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResponseMetadata {
-    pub response_time: DateTime<Utc>,
-    pub processing_time_ms: u64,
-    pub real_time_source: DataSource,
-    pub reference_source: DataSource,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StationListResponse {
-    pub stations: Vec<VelibStation>,
-    pub total_count: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pagination: Option<PaginationInfo>,
-    pub metadata: ResponseMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,7 +232,10 @@ impl From<crate::Error> for JsonRpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Coordinates;
     use serde_json::json;
+
+    // ── existing tests (unchanged) ──────────────────────────────────────────
 
     #[test]
     fn station_not_found_serializes_null_station() {
@@ -314,5 +268,183 @@ mod tests {
         let rpc_err = JsonRpcError::from(err);
         assert_eq!(rpc_err.code, -32603);
         assert!(rpc_err.message.contains("test error"));
+    }
+
+    // ── GeographicBounds::contains ──────────────────────────────────────────
+    //
+    // The bounding-box check is used by get_area_statistics to filter which
+    // stations fall inside the query area.  Off-by-one errors or
+    // north/south/east/west confusion would silently return wrong counts.
+
+    fn paris_center_bounds() -> GeographicBounds {
+        // A tight box around central Paris (roughly 1st–4th arrondissement)
+        GeographicBounds {
+            north: 48.865,
+            south: 48.850,
+            east: 2.360,
+            west: 2.340,
+        }
+    }
+
+    #[test]
+    fn point_inside_bounds_is_contained() {
+        let bounds = paris_center_bounds();
+        let inside = Coordinates::new(48.857, 2.350);
+        assert!(bounds.contains(&inside));
+    }
+
+    #[test]
+    fn point_outside_north_is_not_contained() {
+        let bounds = paris_center_bounds();
+        assert!(!bounds.contains(&Coordinates::new(48.870, 2.350)));
+    }
+
+    #[test]
+    fn point_outside_south_is_not_contained() {
+        let bounds = paris_center_bounds();
+        assert!(!bounds.contains(&Coordinates::new(48.840, 2.350)));
+    }
+
+    #[test]
+    fn point_outside_east_is_not_contained() {
+        let bounds = paris_center_bounds();
+        assert!(!bounds.contains(&Coordinates::new(48.857, 2.370)));
+    }
+
+    #[test]
+    fn point_outside_west_is_not_contained() {
+        let bounds = paris_center_bounds();
+        assert!(!bounds.contains(&Coordinates::new(48.857, 2.330)));
+    }
+
+    #[test]
+    fn point_on_north_boundary_is_contained() {
+        let bounds = paris_center_bounds();
+        assert!(bounds.contains(&Coordinates::new(48.865, 2.350)));
+    }
+
+    #[test]
+    fn point_on_south_boundary_is_contained() {
+        let bounds = paris_center_bounds();
+        assert!(bounds.contains(&Coordinates::new(48.850, 2.350)));
+    }
+
+    #[test]
+    fn point_on_east_boundary_is_contained() {
+        let bounds = paris_center_bounds();
+        assert!(bounds.contains(&Coordinates::new(48.857, 2.360)));
+    }
+
+    #[test]
+    fn point_on_west_boundary_is_contained() {
+        let bounds = paris_center_bounds();
+        assert!(bounds.contains(&Coordinates::new(48.857, 2.340)));
+    }
+
+    // ── JsonRpcError::from for key Error variants ───────────────────────────
+    //
+    // The From impl is the bridge between our domain errors and the wire
+    // format an MCP client parses.  We spot-check that the code, message, and
+    // error_type data field are all populated correctly for variants beyond
+    // the single case covered by the existing test.
+
+    #[test]
+    fn jsonrpc_error_from_invalid_coordinates() {
+        let err = crate::Error::InvalidCoordinates {
+            latitude: 0.0,
+            longitude: 0.0,
+        };
+        let rpc = JsonRpcError::from(err);
+        assert_eq!(rpc.code, -32602);
+        let data = rpc.data.unwrap();
+        assert_eq!(data["error_type"], "invalid_coordinates");
+    }
+
+    #[test]
+    fn jsonrpc_error_from_station_not_found() {
+        let err = crate::Error::StationNotFound {
+            station_code: "42".to_string(),
+        };
+        let rpc = JsonRpcError::from(err);
+        assert_eq!(rpc.code, -32600);
+        assert!(rpc.message.contains("42"));
+        let data = rpc.data.unwrap();
+        assert_eq!(data["error_type"], "station_not_found");
+    }
+
+    #[test]
+    fn jsonrpc_error_from_search_radius_too_large() {
+        let err = crate::Error::SearchRadiusTooLarge {
+            radius: 9999,
+            max: 5000,
+        };
+        let rpc = JsonRpcError::from(err);
+        assert_eq!(rpc.code, -32602);
+        let data = rpc.data.unwrap();
+        assert_eq!(data["error_type"], "search_radius_too_large");
+    }
+
+    #[test]
+    fn jsonrpc_error_always_includes_error_type_in_data() {
+        // Whatever the error variant, the data object must carry an
+        // "error_type" key so clients can reliably branch on it.
+        let errors: Vec<crate::Error> = vec![
+            crate::Error::Validation("x".into()),
+            crate::Error::Cache("x".into()),
+            crate::Error::McpProtocol("x".into()),
+            crate::Error::OutsideServiceArea { distance_km: 100.0 },
+            crate::Error::ResultLimitExceeded {
+                limit: 200,
+                max: 100,
+            },
+        ];
+        for err in errors {
+            let rpc = JsonRpcError::from(err);
+            let data = rpc.data.expect("data field must be present");
+            assert!(
+                data["error_type"].is_string(),
+                "error_type must be a string in data"
+            );
+        }
+    }
+
+    // ── JsonRpcResponse – error path ────────────────────────────────────────
+
+    #[test]
+    fn jsonrpc_response_with_error_omits_result() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: json!(99),
+            result: None,
+            error: Some(JsonRpcError {
+                code: -32600,
+                message: "bad request".to_string(),
+                data: None,
+            }),
+        };
+        let serialized = serde_json::to_string(&response).unwrap();
+        assert!(!serialized.contains("\"result\""));
+        assert!(serialized.contains("\"error\""));
+        assert!(serialized.contains("-32600"));
+    }
+
+    // ── default serde values ────────────────────────────────────────────────
+
+    #[test]
+    fn find_nearby_stations_input_defaults() {
+        // Deserialise with only the required fields; verify serde defaults.
+        let input: FindNearbyStationsInput =
+            serde_json::from_str(r#"{"latitude":48.856,"longitude":2.352}"#).unwrap();
+        assert_eq!(input.radius_meters, 500);
+        assert_eq!(input.limit, 10);
+        assert!(input.availability_filter.is_none());
+    }
+
+    #[test]
+    fn journey_preferences_defaults_to_any_bike_type() {
+        use crate::types::BikeTypeFilter;
+        let prefs: JourneyPreferences = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(prefs.bike_type, BikeTypeFilter::AnyType);
+        assert_eq!(prefs.max_walk_distance, 500);
     }
 }

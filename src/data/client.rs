@@ -1,8 +1,7 @@
 use crate::data::cache::InMemoryCache;
 use crate::data::retry::{RetryConfig, RetryPolicy, RetryableHttpClient};
 use crate::types::{
-    BikeAvailability, RealTimeStatus, ServiceCapabilities, StationReference, StationStatus,
-    VelibStation,
+    BikeAvailability, RealTimeStatus, StationReference, StationStatus, VelibStation,
 };
 use crate::{Error, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -253,19 +252,11 @@ impl VelibDataClient {
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
 
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
         Ok(StationReference {
             station_code,
             name,
             coordinates,
             capacity,
-            capabilities,
         })
     }
 
