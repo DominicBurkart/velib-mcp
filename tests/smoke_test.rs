@@ -1,21 +1,13 @@
-use std::net::TcpListener;
+mod common;
+
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::sleep;
 
-/// Find an available port by binding to a random port and returning it
-fn find_available_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("Failed to bind to ephemeral port")
-        .local_addr()
-        .expect("Failed to get local address")
-        .port()
-}
-
 #[tokio::test]
 async fn test_server_starts_and_responds() {
     // Start the server in background
-    let port = find_available_port();
+    let port = common::find_available_port();
     let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
@@ -53,7 +45,7 @@ async fn test_server_starts_and_responds() {
 #[tokio::test]
 async fn test_mcp_tools_endpoint() {
     // Start the server
-    let port = find_available_port();
+    let port = common::find_available_port();
     let mut server = Command::new(env!("CARGO_BIN_EXE_velib-mcp"))
         .env("IP", "127.0.0.1")
         .env("PORT", port.to_string())
