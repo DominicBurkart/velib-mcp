@@ -79,3 +79,38 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --release
+
+  all-checks:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - test
+      - fmt
+      - clippy
+      - security
+      - feature-testing
+      - build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify gate covers every job
+        run: |
+          set -euo pipefail
+          all_jobs=$(yq -r '.jobs | keys | .[]' .github/workflows/ci.yml | sort)
+          gate_needs=$(yq -r '.jobs["all-checks"].needs | .[]' .github/workflows/ci.yml | sort)
+          expected=$(echo "$all_jobs" | grep -vx 'all-checks')
+          missing=$(comm -23 <(echo "$expected") <(echo "$gate_needs") || true)
+          if [ -n "$missing" ]; then
+            echo "::error::Jobs missing from 'all-checks'.needs:"
+            echo "$missing"
+            echo "Add them to .github/workflows/ci.yml under jobs.all-checks.needs"
+            exit 1
+          fi
+          echo "OK: all $(echo "$expected" | wc -l | tr -d ' ') non-gate jobs covered"
+
+      - name: Fail if any dependency failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "::error::One or more CI jobs failed or were cancelled"
+          exit 1
