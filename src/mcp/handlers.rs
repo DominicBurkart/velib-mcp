@@ -519,12 +519,10 @@ mod tests {
         assert_eq!(results[2].station.reference.station_code, "farthest");
         // Distances must be non-decreasing.
         assert!(
-            results[0].straight_line_distance_meters
-                <= results[1].straight_line_distance_meters
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
         );
         assert!(
-            results[1].straight_line_distance_meters
-                <= results[2].straight_line_distance_meters
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
         );
     }
 
@@ -550,8 +548,12 @@ mod tests {
 
         assert_eq!(results.len(), 3);
         // The 3 returned must be the 3 closest (limit applied after sort).
-        assert!(results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters);
-        assert!(results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters);
+        assert!(
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
+        );
     }
 
     #[test]
@@ -605,7 +607,15 @@ mod tests {
         let origin = paris_city_hall();
         // 5 stations in radius with mechanical bikes, 2 outside radius, 1 in radius without bikes.
         let mut stations: Vec<VelibStation> = (0..5)
-            .map(|i| make_station(&format!("m{i}"), 48.8565 + f64::from(i) * 0.0001, 2.3514, 2, 0))
+            .map(|i| {
+                make_station(
+                    &format!("m{i}"),
+                    48.8565 + f64::from(i) * 0.0001,
+                    2.3514,
+                    2,
+                    0,
+                )
+            })
             .collect();
         stations.push(make_station("far", 48.875, 2.3514, 2, 0)); // outside radius
         stations.push(make_station("nobike", 48.8566, 2.3520, 0, 0)); // in radius, no bikes
@@ -620,7 +630,11 @@ mod tests {
             assert!(r.straight_line_distance_meters <= 500);
         }
         // Must be sorted by distance.
-        assert!(results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters);
-        assert!(results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters);
+        assert!(
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
+        );
     }
 }
