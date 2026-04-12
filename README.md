@@ -9,17 +9,15 @@
 
 A high-performance Model Context Protocol (MCP) server providing access to Paris Velib bike sharing data for AI assistants.
 
-## Quick Start - Install with Claude Code
-
-Install and use the Velib MCP server with Claude Code in one command:
+## Quick Start — Claude Code
 
 ```bash
-# Install and configure the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+PORT=8080 velib-mcp
 ```
 
-Then use in Claude Code:
+Then configure Claude Code to connect to `http://localhost:8080` and use the tools:
+
 ```
 @velib find nearby stations at latitude 48.8566 longitude 2.3522
 @velib get station by code 16107
@@ -28,7 +26,7 @@ Then use in Claude Code:
 
 ## Overview
 
-This project exposes two key Parisian datasets through MCP:
+This project exposes two Parisian datasets through MCP:
 - **Real-time availability**: Current bike and dock availability at stations
 - **Station locations**: Geographic information and details about all Velib stations
 
@@ -50,44 +48,20 @@ This project exposes two key Parisian datasets through MCP:
 <details>
 <summary>Click to expand integration guides</summary>
 
-### ChatGPT
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
-```
-
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+```json
 {
   "mcp.servers": {
     "velib": {
       "command": "velib-mcp",
-      "args": ["--port", "8080"]
+      "env": { "PORT": "8080" }
     }
   }
 }
 ```
 
-### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
-```
-
-### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+### Other MCP-compatible clients
+Run the server with `PORT=8080 velib-mcp` and point your client at `http://localhost:8080`.
 
 </details>
 
@@ -128,14 +102,15 @@ podman run -p 8080:8080 velib-mcp
 
 ## Deployment
 
-The project is configured for deployment to Scaleway Container Serverless via GitHub Actions on pushes to the main branch.
+The project deploys to Scaleway Container Serverless via GitHub Actions on pushes to main.
+The server is configured via `IP` and `PORT` environment variables (defaults: `0.0.0.0:8080`).
 
 ## Architecture
 
 - **Language**: Rust
-- **Deployment**: Scaleway Container Serverless  
+- **Deployment**: Scaleway Container Serverless
 - **CI/CD**: GitHub Actions
-- **Development**: Test-Driven Development approach
+- **Development**: Test-Driven Development
 - **Container**: Distroless Debian base image
 
 ## License
