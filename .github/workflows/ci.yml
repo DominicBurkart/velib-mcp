@@ -31,6 +31,17 @@ jobs:
     - name: Enforce formatting
       run: cargo fmt --check
 
+  cargo-sort:
+    name: Cargo Sort
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Install cargo-sort
+      run: cargo install cargo-sort --locked
+    - name: Check Cargo.toml sorting
+      run: cargo-sort --check --workspace
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -72,7 +83,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, fmt, clippy, security, feature-testing]
+    needs: [test, fmt, cargo-sort, clippy, security, feature-testing]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
