@@ -209,16 +209,37 @@ impl VelibDataClient {
         Ok(stations)
     }
 
-    /// Get a specific station by code
+    /// Get a specific station by code.
+    ///
+    /// Fetches reference and real-time data then filters in-memory. Because both
+    /// datasets are cached the cost is only paid on the first call per TTL window.
     pub async fn get_station_by_code(
         &mut self,
         station_code: &str,
         include_realtime: bool,
     ) -> Result<Option<VelibStation>> {
-        let all_stations = self.get_all_stations(include_realtime).await?;
-        Ok(all_stations
+        // Fetch only the reference dataset and look up directly, then optionally
+        // merge real-time data for just this station — avoids constructing the
+        // full merged Vec when only one station is needed.
+        let reference_stations = self.fetch_reference_stations().await?;
+        let reference = reference_stations
             .into_iter()
-            .find(|station| station.reference.station_code == station_code))
+            .find(|s| s.station_code == station_code);
+
+        let Some(ref_station) = reference else {
+            return Ok(None);
+        };
+
+        let mut station = VelibStation::new(ref_station);
+
+        if include_realtime {
+            let realtime_status = self.fetch_realtime_status().await?;
+            if let Some(rt_status) = realtime_status.get(station_code) {
+                station = station.with_real_time(rt_status.clone());
+            }
+        }
+
+        Ok(Some(station))
     }
 
     /// Parse reference station data from API response
@@ -277,37 +298,31 @@ impl VelibDataClient {
             .to_string();
 
         let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
-
         let electric_bikes = record["ebike"].as_u64().unwrap_or(0) as u16;
-
         let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
 
-        // Parse status
-        let status_str = record["is_installed"].as_str().unwrap_or("NON");
+        // Parse installed/renting/returning flags; missing field treated as "NON"
+        let is_installed = record["is_installed"].as_str().unwrap_or("NON") == "OUI";
 
-        let status = match status_str {
-            "OUI" => {
-                let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
-                let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
-
-                if is_renting && is_returning {
-                    StationStatus::Open
-                } else {
-                    StationStatus::Maintenance
-                }
+        let status = if is_installed {
+            let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
+            let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
+            if is_renting && is_returning {
+                StationStatus::Open
+            } else {
+                StationStatus::Maintenance
             }
-            _ => StationStatus::Closed,
+        } else {
+            StationStatus::Closed
         };
 
-        // Parse last update time
-        let default_time = Utc::now().to_rfc3339();
-        let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
-
-        let last_update = DateTime::parse_from_rfc3339(last_update_str)
-            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+        // Parse last update time; fall back to now if field is absent or malformed
+        let last_update = record["duedate"]
+            .as_str()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
 
         let bikes = BikeAvailability::new(mechanical_bikes, electric_bikes);
-
         let real_time_status = RealTimeStatus::new(bikes, available_docks, status, last_update);
 
         Ok((station_code, real_time_status))
