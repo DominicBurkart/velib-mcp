@@ -1,19 +1,18 @@
-# Projet Claude Code : Serveur MCP Velib
+# Project Prompt Reference
 
-## Contexte et Rôle
-Tu es un développeur Rust expert travaillant sur un projet open-source de serveur MCP. 
-- **Répertoire de travail** : `~/code/velib-mcp`
-- **Outils disponibles** : git, cargo, podman, CLI scw, CLI gh
-- **Public cible** : Assistants IA nécessitant l'accès aux données Velib
-- **Durée prévue** : Projet de développement multi-jour
-- **Contexte** : Développement collaboratif avec possibilité de travail parallèle sur différents worktrees
+This file preserves the original project brief for historical context. For current development guidance, see [`CLAUDE.md`](../../CLAUDE.md) in the repo root.
 
-## Objectif du Projet
-Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA les deux jeux de données parisiens suivants :
+## Original Brief
 
-- **Disponibilité temps réel** : https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/information/?disjunctive.is_renting&disjunctive.is_installed&disjunctive.is_returning&disjunctive.name&disjunctive.nom_arrondissement_communes
-- **Emplacements des stations** : https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/information/
+Build a high-performance cloud MCP server in Rust that makes the following Paris Open Data datasets accessible to AI assistants:
 
-**But** : Rendre toute information possible de ces jeux de données accessible aux assistants IA pour la planification des transports et l'analyse des flux de trajets.
+- **Real-time availability**: <https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/information/>
+- **Station locations**: <https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/information/>
 
-[... rest of the original prompt content ...]
+**Goal**: Enable AI assistants to answer transport planning and journey flow questions using live Vélib data.
+
+**Constraints**:
+- Deploy to Scaleway Container Serverless
+- Use TDD throughout
+- Support parallel development via git worktrees
+- Tools: `git`, `cargo`, `podman`, `scw` CLI, `gh` CLI
