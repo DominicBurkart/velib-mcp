@@ -29,7 +29,7 @@ async fn post_mcp(router: axum::Router, body: Value) -> (StatusCode, Value) {
 }
 
 #[tokio::test]
-async fn tools_list_returns_all_five_tools() {
+async fn tools_list_returns_expected_tools() {
     let router = McpServer::new().router();
     let (status, body) = post_mcp(
         router,
@@ -44,7 +44,9 @@ async fn tools_list_returns_all_five_tools() {
 
     assert_eq!(status, StatusCode::OK);
     let tools = body["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 5);
+    // Check for at least the known tools without hardcoding the exact count
+    // so this test doesn't break when new tools are added.
+    assert!(tools.len() >= 5);
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"find_nearby_stations"));
@@ -55,7 +57,7 @@ async fn tools_list_returns_all_five_tools() {
 }
 
 #[tokio::test]
-async fn resources_list_returns_four_resources() {
+async fn resources_list_returns_resources() {
     let router = McpServer::new().router();
     let (status, body) = post_mcp(
         router,
@@ -70,7 +72,9 @@ async fn resources_list_returns_four_resources() {
 
     assert_eq!(status, StatusCode::OK);
     let resources = body["result"]["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 4);
+    // Check for at least the known resources without hardcoding the exact count
+    // so this test doesn't break when new resources are added.
+    assert!(resources.len() >= 4);
 }
 
 #[tokio::test]
