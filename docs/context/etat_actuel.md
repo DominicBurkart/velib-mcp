@@ -1,41 +1,19 @@
-# État Actuel du Projet Velib MCP
+# Project Status
 
-## Phase Actuelle: Phase 2 - Architecture Système
+All implementation phases are complete. The server is deployed and operational.
 
-### Statut: Prêt à commencer
-Date de dernière mise à jour: 2025-06-14
+## Completed Phases
 
-## Phase 0 - Configuration (TERMINÉE ✅)
-- ✅ Initialisation du projet Rust avec cargo
-- ✅ Configuration git et remote GitHub (DominicBurkart/velib-mcp)
-- ✅ Structure de documentation créée (/docs)
-- ✅ Configuration des hooks pre-commit (fmt, clippy, audit)
-- ✅ Workflow CI/CD GitHub Actions configuré
-- ✅ Dockerfile créé pour déploiement Scaleway (compatible Podman)
-- ✅ Système de suivi de contexte Claude initialisé
-- ✅ Documentation projet et README créés
+- **Phase 0**: Project setup — Rust project init, GitHub remote, CI/CD, pre-commit hooks, Dockerfile
+- **Phase 1**: Data analysis — both datasets documented, Rust schemas drafted (`docs/api/`)
+- **Phase 2A**: Environment config and base server foundation
+- **Phase 2B**: MCP protocol foundation and core types
+- **Phase 3A**: Live data API integration and data client
+- **Phase 3B**: Full MCP handlers with live data integration
+- **Phase 4**: Repository cleanup (removal of committed worktrees)
 
-## Phase 1 - Analyse des Données (TERMINÉE ✅)
-- ✅ Analyse complète du dataset disponibilité temps réel
-- ✅ Analyse complète du dataset emplacements des stations
-- ✅ Identification structure données et colonnes (15+ champs)
-- ✅ Documentation technique détaillée (/docs/api/data_analysis.md)
-- ✅ Schémas de données Rust complets (/docs/api/mcp_schemas.md)
-- ✅ Spécification interfaces MCP avec 5 tools (/docs/api/mcp_interface_spec.md)
+## Key Files
 
-## Prochaines Étapes (Phase 2)
-1. 🎯 Architecturer le système et composants
-2. 🎯 Définir l'organisation modulaire du code Rust
-3. 🎯 Planifier l'approche agile avec PRs cohérentes
-4. 🎯 Documenter l'architecture dans /docs/decisions
-
-## Dépendances Techniques
-- Rust (version stable récente)
-- GitHub Actions pour CI/CD
-- Scaleway CLI pour déploiement
-- Podman pour conteneurisation
-
-## Notes Importantes
-- Repository configuré pour github.com/dominicburkart/velib-mcp
-- Email configuré: dominic@dominic.computer
-- Approche TDD requise pour toutes les fonctionnalités
+- `src/types.rs` — canonical data structures
+- `docs/api/data_analysis.md` — upstream API field documentation
+- `docs/api/mcp_interface_spec.md` — MCP tool/resource specifications
