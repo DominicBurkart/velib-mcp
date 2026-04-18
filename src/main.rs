@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse server address from environment variables
     let addr = parse_server_address()
-        .expect("Failed to parse server address from IP and PORT environment variables");
+        .map_err(|e| format!("Failed to parse server address from IP and PORT environment variables: {e}"))?;
 
     // Create and run server
     let server = Server::new(addr);
