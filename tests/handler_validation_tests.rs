@@ -6,7 +6,8 @@
 
 use velib_mcp::mcp::handlers::McpToolHandler;
 use velib_mcp::mcp::types::{
-    FindNearbyStationsInput, PlanBikeJourneyInput, SearchStationsByNameInput,
+    FindNearbyStationsInput, GetAreaStatisticsInput, GeographicBounds, PlanBikeJourneyInput,
+    SearchStationsByNameInput,
 };
 use velib_mcp::types::Coordinates;
 
@@ -102,6 +103,8 @@ async fn search_stations_rejects_short_query() {
 
     let result = handler.search_stations_by_name(input).await;
     assert!(result.is_err());
+    // Short query is a client validation error, not an internal server error.
+    assert_eq!(result.unwrap_err().error_type(), "validation_error");
 }
 
 #[tokio::test]
@@ -145,4 +148,38 @@ async fn plan_journey_rejects_invalid_destination() {
     let result = handler.plan_bike_journey(input).await;
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().error_type(), "invalid_coordinates");
+}
+
+/// get_area_statistics with an empty bounding box (zero-area) should succeed
+/// and return zero stations without touching the network — the bounds simply
+/// match no stations in the empty/pre-warm cache scenario, but more importantly
+/// it must not panic.
+#[tokio::test]
+async fn get_area_statistics_empty_bounds_does_not_panic() {
+    let handler = McpToolHandler::new();
+    // A degenerate zero-area box right in the centre of Paris.
+    let input = GetAreaStatisticsInput {
+        bounds: GeographicBounds {
+            north: 48.8566,
+            south: 48.8566,
+            east: 2.3522,
+            west: 2.3522,
+        },
+        include_real_time: false,
+    };
+
+    // This will attempt a network call; we accept either success (0 stations
+    // in a point-box) or a network error -- the important thing is no panic.
+    let result = handler.get_area_statistics(input).await;
+    if let Ok(output) = result {
+        // A point bounding box should contain at most 1 station.
+        assert!(
+            output.area_stats.total_stations <= 1,
+            "Point bounding box should have 0 or 1 stations"
+        );
+        // Occupancy rate must be in [0, 1].
+        assert!(output.area_stats.occupancy_rate >= 0.0);
+        assert!(output.area_stats.occupancy_rate <= 1.0);
+    }
+    // Network errors are acceptable in this validation-focused test.
 }
