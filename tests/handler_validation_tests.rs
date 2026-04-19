@@ -68,30 +68,21 @@ async fn find_nearby_rejects_coordinates_outside_service_area() {
 #[tokio::test]
 async fn find_nearby_rejects_coordinates_far_outside_service_area() {
     let handler = McpToolHandler::new();
-    // Coordinates within Paris metro bounds but > 50km from city hall
-    // (far eastern edge of the metro box)
+    // Coordinates well beyond the 50km service area radius from Paris City Hall
+    // (48.8566, 2.3522). Using a point ~0.9 deg north (~100km) guarantees we
+    // exercise the OutsideServiceArea path deterministically.
     let input = FindNearbyStationsInput {
-        latitude: 48.95,
-        longitude: 2.59,
+        latitude: 49.75,
+        longitude: 2.3522,
         radius_meters: 500,
         limit: 10,
         availability_filter: None,
     };
 
     let result = handler.find_nearby_stations(input).await;
-    // This might be within service area depending on exact distance calculation,
-    // but if it passes validation, the API call will follow. We just verify
-    // the validation layer doesn't panic.
-    // The key point is that if the coordinates are truly > 50km away,
-    // we get an OutsideServiceArea error.
-    if let Err(err) = &result {
-        let err_type = err.error_type();
-        assert!(
-            err_type == "outside_service_area" || err_type == "http_error",
-            "Unexpected error type: {err_type}"
-        );
-    }
-    // If it succeeded, the coordinates were within 50km -- also acceptable.
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.error_type(), "outside_service_area");
 }
 
 #[tokio::test]
