@@ -1,7 +1,7 @@
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_bikes: Option<u16>,
@@ -11,6 +11,17 @@ pub struct AvailabilityFilter {
     pub bike_type: Option<BikeTypeFilter>,
     #[serde(default = "default_true")]
     pub exclude_out_of_service: bool,
+}
+
+impl Default for AvailabilityFilter {
+    fn default() -> Self {
+        Self {
+            min_bikes: None,
+            min_docks: None,
+            bike_type: None,
+            exclude_out_of_service: true,
+        }
+    }
 }
 
 fn default_true() -> bool {
