@@ -80,7 +80,7 @@ impl VelibDataClient {
 
         let mut all_stations = Vec::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100;
 
         loop {
             let query_params = &[
@@ -99,7 +99,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -138,7 +138,7 @@ impl VelibDataClient {
 
         let mut all_status = HashMap::new();
         let mut offset = 0;
-        let limit = 100; // API limit
+        let limit = 100;
 
         loop {
             let query_params = &[
@@ -157,7 +157,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -253,19 +253,14 @@ impl VelibDataClient {
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
 
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
+        // Service capability fields (credit card, charging, virtual station) are not
+        // exposed by the current Paris Open Data API endpoints; default to false.
         Ok(StationReference {
             station_code,
             name,
             coordinates,
             capacity,
-            capabilities,
+            capabilities: ServiceCapabilities::default(),
         })
     }
 
