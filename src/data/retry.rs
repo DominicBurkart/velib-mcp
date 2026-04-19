@@ -280,6 +280,29 @@ impl RetryableHttpClient {
         }
     }
 
+    /// Check an HTTP response for rate limiting and error status codes.
+    /// Returns the response on success, or an appropriate error.
+    fn check_response(response: reqwest::Response, url: &str) -> Result<reqwest::Response> {
+        debug!("Received response: {} {}", response.status(), url);
+
+        if response.status() == 429 {
+            let retry_after = extract_retry_after_from_response(&response);
+            warn!(
+                "Rate limited (429) for {}{}",
+                url,
+                retry_after.map_or_else(String::new, |seconds| format!(", retry after {seconds}s"))
+            );
+            return Err(create_rate_limited_error(&response));
+        }
+
+        if !response.status().is_success() {
+            warn!("HTTP error {} for {}", response.status(), url);
+            return Err(Error::Http(response.error_for_status().unwrap_err()));
+        }
+
+        Ok(response)
+    }
+
     /// Make a GET request with retry logic
     pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
         debug!("Making GET request to: {}", url);
@@ -287,29 +310,7 @@ impl RetryableHttpClient {
         self.retry_policy
             .execute(|| async {
                 let response = self.client.get(url).send().await?;
-
-                debug!("Received response: {} {}", response.status(), url);
-
-                // Check for rate limiting
-                if response.status() == 429 {
-                    let retry_after = extract_retry_after_from_response(&response);
-                    warn!(
-                        "Rate limited (429) for {}{}",
-                        url,
-                        retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {seconds}s"
-                        ))
-                    );
-                    return Err(create_rate_limited_error(&response));
-                }
-
-                // Check for other HTTP errors
-                if !response.status().is_success() {
-                    warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
-                }
-
-                Ok(response)
+                Self::check_response(response, url)
             })
             .await
     }
@@ -324,29 +325,7 @@ impl RetryableHttpClient {
         self.retry_policy
             .execute(|| async {
                 let response = self.client.get(url).query(query).send().await?;
-
-                debug!("Received response: {} {}", response.status(), url);
-
-                // Check for rate limiting
-                if response.status() == 429 {
-                    let retry_after = extract_retry_after_from_response(&response);
-                    warn!(
-                        "Rate limited (429) for {}{}",
-                        url,
-                        retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {seconds}s"
-                        ))
-                    );
-                    return Err(create_rate_limited_error(&response));
-                }
-
-                // Check for other HTTP errors
-                if !response.status().is_success() {
-                    warn!("HTTP error {} for {}", response.status(), url);
-                    return Err(Error::Http(response.error_for_status().unwrap_err()));
-                }
-
-                Ok(response)
+                Self::check_response(response, url)
             })
             .await
     }
