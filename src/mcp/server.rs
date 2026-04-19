@@ -314,80 +314,86 @@ impl McpServer {
                 ]
             })),
             "tools/call" => {
-                let params = request
-                    .params
-                    .as_object()
-                    .ok_or_else(|| Error::McpProtocol("Invalid params".to_string()))?;
-                let tool_name = params
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| Error::McpProtocol("Missing tool name".to_string()))?;
-                let empty_args = json!({});
-                let arguments = params.get("arguments").unwrap_or(&empty_args);
+                // Wrap the body in an async block so `?` errors are caught here and
+                // routed through the JSON-RPC error envelope below instead of
+                // escaping `process_jsonrpc_request` and triggering an HTTP 500.
+                async {
+                    let params = request
+                        .params
+                        .as_object()
+                        .ok_or_else(|| Error::McpProtocol("Invalid params".to_string()))?;
+                    let tool_name = params
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| Error::McpProtocol("Missing tool name".to_string()))?;
+                    let empty_args = json!({});
+                    let arguments = params.get("arguments").unwrap_or(&empty_args);
 
-                match tool_name {
-                    "find_nearby_stations" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.find_nearby_stations(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                    match tool_name {
+                        "find_nearby_stations" => {
+                            let input = serde_json::from_value(arguments.clone())?;
+                            let output = handler.find_nearby_stations(input).await?;
+                            Ok(json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&output)?
+                                    }
+                                ]
+                            }))
+                        }
+                        "get_station_by_code" => {
+                            let input = serde_json::from_value(arguments.clone())?;
+                            let output = handler.get_station_by_code(input).await?;
+                            Ok(json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&output)?
+                                    }
+                                ]
+                            }))
+                        }
+                        "search_stations_by_name" => {
+                            let input = serde_json::from_value(arguments.clone())?;
+                            let output = handler.search_stations_by_name(input).await?;
+                            Ok(json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&output)?
+                                    }
+                                ]
+                            }))
+                        }
+                        "get_area_statistics" => {
+                            let input = serde_json::from_value(arguments.clone())?;
+                            let output = handler.get_area_statistics(input).await?;
+                            Ok(json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&output)?
+                                    }
+                                ]
+                            }))
+                        }
+                        "plan_bike_journey" => {
+                            let input = serde_json::from_value(arguments.clone())?;
+                            let output = handler.plan_bike_journey(input).await?;
+                            Ok(json!({
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": serde_json::to_string_pretty(&output)?
+                                    }
+                                ]
+                            }))
+                        }
+                        _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                     }
-                    "get_station_by_code" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.get_station_by_code(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
-                    }
-                    "search_stations_by_name" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.search_stations_by_name(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
-                    }
-                    "get_area_statistics" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.get_area_statistics(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
-                    }
-                    "plan_bike_journey" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.plan_bike_journey(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
-                    }
-                    _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
+                .await
             }
             "resources/list" => Ok(json!({
                 "resources": [
