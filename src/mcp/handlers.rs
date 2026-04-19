@@ -489,7 +489,7 @@ mod tests {
         let closest = make_station("closest", 48.8566, 2.3514, 1, 0); // ~11 m
         let middle = make_station("middle", 48.8575, 2.3514, 1, 0); // ~110 m
         let farthest = make_station("farthest", 48.8585, 2.3514, 1, 0); // ~220 m
-        let stations = vec![farthest.clone(), middle.clone(), closest.clone()];
+        let stations = vec![farthest, middle, closest];
 
         let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
 
