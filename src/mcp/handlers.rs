@@ -17,11 +17,23 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
+/// Validate that a coordinate is within the Velib service area, returning the
+/// appropriate `Error` if not. Centralizes the two checks previously duplicated
+/// across each handler (valid Paris metro bounds + 50km-of-City-Hall).
+fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
+    if !coords.is_valid_paris_metro() {
+        return Err(Error::InvalidCoordinates {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+        });
+    }
+    if !coords.is_within_paris_service_area() {
+        return Err(Error::OutsideServiceArea {
+            distance_km: coords.distance_to_paris_city_hall_km(),
+        });
+    }
+    Ok(())
+}
 
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
@@ -106,18 +118,7 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-        if !query_point.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.latitude,
-                longitude: input.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall
-        if !query_point.is_within_paris_service_area() {
-            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        ensure_in_service_area(&query_point)?;
 
         // Fetch live station data
         let mut data_client = self.data_client.write().await;
@@ -294,30 +295,8 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        if !input.origin.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.origin.latitude,
-                longitude: input.origin.longitude,
-            });
-        }
-
-        if !input.destination.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.destination.latitude,
-                longitude: input.destination.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall for both origin and destination
-        if !input.origin.is_within_paris_service_area() {
-            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
-
-        if !input.destination.is_within_paris_service_area() {
-            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        ensure_in_service_area(&input.origin)?;
+        ensure_in_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
         let mut data_client = self.data_client.write().await;
@@ -636,5 +615,23 @@ mod tests {
         assert!(
             results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
         );
+    }
+
+    // --- ensure_in_service_area ---
+
+    #[test]
+    fn test_ensure_in_service_area_accepts_paris_center() {
+        let center = Coordinates::new(48.8566, 2.3522);
+        assert!(ensure_in_service_area(&center).is_ok());
+    }
+
+    #[test]
+    fn test_ensure_in_service_area_rejects_invalid_bounds() {
+        // Outside the Paris metro bounding box entirely.
+        let nyc = Coordinates::new(40.7128, -74.0060);
+        match ensure_in_service_area(&nyc) {
+            Err(Error::InvalidCoordinates { .. }) => {}
+            other => panic!("expected InvalidCoordinates, got {other:?}"),
+        }
     }
 }
