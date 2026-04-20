@@ -132,6 +132,45 @@ enforces:
 
 Any non-zero exit aborts the commit.
 
+### Coverage ratchet (pre-push)
+
+The repo ships with a tarpaulin-based untested-lines ratchet. It compares the
+number of uncovered lines at `HEAD` against the merge-base with `origin/main`
+and refuses pushes that *increase* the uncovered count. Tracking uncovered
+lines (not percentage) avoids false alarms when tested code is deleted.
+
+Install tarpaulin once:
+
+```bash
+cargo install cargo-tarpaulin --locked
+```
+
+Wire the hook locally (symlink, so the script stays in-repo):
+
+```bash
+ln -s ../../scripts/coverage-ratchet.sh .git/hooks/pre-push
+chmod +x .git/hooks/pre-push
+```
+
+Or invoke ad-hoc:
+
+```bash
+# Full run (takes ~75s on this codebase)
+scripts/coverage-ratchet.sh
+
+# Fixture-only sanity check (runs in <1s, no cargo needed)
+scripts/coverage-ratchet.sh --self-test
+
+# Debug: show the top-N uncovered files for an existing tarpaulin JSON
+scripts/coverage-ratchet.sh --summary coverage/head/tarpaulin-report.json
+```
+
+On failure the script prints a markdown summary (mirrored to
+`$GITHUB_STEP_SUMMARY` in CI) listing the top files by uncovered lines, the
+affected line ranges, and a suggested test paradigm (unit / integration /
+property). See `docs/development/coverage-ratchet.md` for the heuristic and
+debugging tips.
+
 ### Podman
 
 ```bash
