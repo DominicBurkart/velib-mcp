@@ -8,6 +8,22 @@ pub struct Coordinates {
 }
 
 impl Coordinates {
+    /// Create a new `Coordinates` from decimal degrees.
+    ///
+    /// `latitude` is expected in `[-90.0, 90.0]` and `longitude` in
+    /// `[-180.0, 180.0]`, but no validation is performed here; validation is
+    /// the responsibility of callers (see [`Coordinates::is_valid_paris_metro`]
+    /// and [`Coordinates::is_within_paris_service_area`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use velib_mcp::types::Coordinates;
+    ///
+    /// let city_hall = Coordinates::new(48.8565, 2.3514);
+    /// assert_eq!(city_hall.latitude, 48.8565);
+    /// assert_eq!(city_hall.longitude, 2.3514);
+    /// ```
     #[must_use]
     pub fn new(latitude: f64, longitude: f64) -> Self {
         Self {
@@ -16,7 +32,31 @@ impl Coordinates {
         }
     }
 
-    /// Calculate distance to another coordinate in meters using Haversine formula
+    /// Calculate great-circle distance to another coordinate in meters using
+    /// the Haversine formula (spherical Earth with radius 6 371 000 m).
+    ///
+    /// The result is symmetric, non-negative, and bounded above by
+    /// `π * 6_371_000 ≈ 2.0015e7` meters (antipodal distance).
+    ///
+    /// # Examples
+    ///
+    /// Distance from a point to itself is zero:
+    /// ```
+    /// use velib_mcp::types::Coordinates;
+    ///
+    /// let p = Coordinates::new(48.8566, 2.3522);
+    /// assert!(p.distance_to(&p) < 1e-6);
+    /// ```
+    ///
+    /// One degree of longitude at the equator is ~111.32 km:
+    /// ```
+    /// use velib_mcp::types::Coordinates;
+    ///
+    /// let a = Coordinates::new(0.0, 0.0);
+    /// let b = Coordinates::new(0.0, 1.0);
+    /// let d = a.distance_to(&b);
+    /// assert!((d - 111_195.0).abs() < 500.0, "got {d}");
+    /// ```
     #[must_use]
     pub fn distance_to(&self, other: &Coordinates) -> f64 {
         let earth_radius = 6_371_000.0; // Earth radius in meters
@@ -34,7 +74,20 @@ impl Coordinates {
         earth_radius * c
     }
 
-    /// Check if coordinates are within reasonable bounds for Paris metro area
+    /// Check if coordinates are within reasonable bounds for Paris metro area.
+    ///
+    /// Uses a coarse lat/lon bounding box: `48.7 ≤ lat ≤ 49.0` and
+    /// `2.0 ≤ lon ≤ 2.6`. This is a cheap pre-filter; for the authoritative
+    /// service-area check see [`Coordinates::is_within_paris_service_area`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use velib_mcp::types::Coordinates;
+    ///
+    /// assert!(Coordinates::new(48.8566, 2.3522).is_valid_paris_metro());
+    /// assert!(!Coordinates::new(40.7128, -74.0060).is_valid_paris_metro()); // NYC
+    /// ```
     #[must_use]
     pub fn is_valid_paris_metro(&self) -> bool {
         // Paris metro area bounds (approximate)
@@ -44,8 +97,19 @@ impl Coordinates {
             && self.longitude <= 2.6
     }
 
-    /// Check if coordinates are within 50km of Paris City Hall (Hôtel de Ville)
-    /// Latitude: 48.8565° N, Longitude: 2.3514° E
+    /// Check if coordinates are within 50 km of Paris City Hall
+    /// (Hôtel de Ville, 48.8565° N, 2.3514° E).
+    ///
+    /// The boundary is inclusive: a point at exactly 50 km is considered inside.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use velib_mcp::types::Coordinates;
+    ///
+    /// assert!(Coordinates::new(48.8565, 2.3514).is_within_paris_service_area());
+    /// assert!(!Coordinates::new(51.5074, -0.1278).is_within_paris_service_area()); // London
+    /// ```
     #[must_use]
     pub fn is_within_paris_service_area(&self) -> bool {
         const PARIS_CITY_HALL_LAT: f64 = 48.8565;
