@@ -42,6 +42,10 @@ fn find_stations_within_radius(
     let mut results: Vec<StationWithDistance> = stations
         .iter()
         .filter_map(|station| {
+            // Haversine distance in meters for earth-surface coordinates is always
+            // non-negative and bounded by ~2.0e7 (half Earth's circumference),
+            // well under `u32::MAX` (~4.3e9), so this saturating `f64 -> u32` cast
+            // cannot overflow in practice.
             let distance = origin.distance_to(&station.reference.coordinates) as u32;
             if distance <= radius_meters && predicate(station) {
                 Some(StationWithDistance {
