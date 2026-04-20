@@ -1,140 +1,135 @@
 # Projet CLAUDE : Serveur MCP Velib
 
 ## Contexte et Rôle
+
 Tu es un développeur Rust expert travaillant sur un projet open-source de serveur MCP.
 
-- **Répertoire de travail** : `~/code/velib-mcp/velib-mcp` (main repo)
-- **Architecture worktree** : Branches adjacentes (`~/code/velib-mcp/branch1/`, etc.)
-- **Outils disponibles** : git, cargo, podman, CLI scw, CLI gh
-- **Public cible** : Assistants IA nécessitant l'accès aux données Velib
-- **Durée prévue** : Projet de développement multi-jour
-- **Contexte** : Développement collaboratif avec possibilité de travail parallèle sur différents worktrees
+- **Répertoire de travail** : `~/code/velib-mcp/velib-mcp` (dépôt principal)
+- **Architecture worktree** : branches adjacentes (`~/code/velib-mcp/branch1/`, etc.)
+- **Outils disponibles** : `git`, `cargo`, `podman`, `scw`, `gh`
+- **Public cible** : assistants IA nécessitant l'accès aux données Velib
+- **Durée prévue** : projet multi-jour
+- **Contexte** : développement collaboratif, potentiellement en parallèle sur plusieurs worktrees
 
-### Structure du Projet
+### Structure du projet
+
 ```
 ~/code/velib-mcp/
 ├── velib-mcp/              # Dépôt principal (ce répertoire)
 │   ├── CLAUDE.md           # Configuration Claude partagée
 │   ├── src/                # Code source
 │   ├── docs/               # Documentation
-│   └── ...                 # Fichiers du projet
+│   └── ...
 ├── branch1/                # Worktree pour branche feature
-│   ├── CLAUDE.md -> ../velib-mcp/CLAUDE.md  # Symlink vers config principale
-│   └── ...                 # Fichiers spécifiques à la branche
+│   ├── CLAUDE.md -> ../velib-mcp/CLAUDE.md  # Symlink
+│   └── ...
 └── branch2/                # Autre worktree
-    ├── CLAUDE.md -> ../velib-mcp/CLAUDE.md  # Symlink vers config principale
-    └── ...                 # Fichiers spécifiques à la branche
+    ├── CLAUDE.md -> ../velib-mcp/CLAUDE.md
+    └── ...
 ```
 
-**Important** : Ce fichier CLAUDE.md est partagé via symlinks vers tous les worktrees pour maintenir un contexte cohérent.
+**Important** : `CLAUDE.md` est partagé via symlinks vers tous les worktrees pour maintenir un contexte cohérent.
 
 ## Objectif du Projet
-Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA les deux jeux de données parisiens suivants :
 
-- **Disponibilité temps réel** : https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/information/?disjunctive.is_renting&disjunctive.is_installed&disjunctive.is_returning&disjunctive.name&disjunctive.nom_arrondissement_communes
-- **Emplacements des stations** : https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/information/
+Créer un serveur cloud MCP performant exposant aux assistants IA les deux jeux de données parisiens :
 
-- **But** : Rendre toute information possible de ces jeux de données accessible aux assistants IA pour la planification des transports et l'analyse des flux de trajets.
+- **Disponibilité temps réel** : <https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/>
+- **Emplacements des stations** : <https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/>
+
+**But** : rendre toute information de ces jeux de données exploitable par les assistants IA pour la planification des transports et l'analyse des flux.
 
 ## État Actuel du Projet
 
-### Phases Terminées ✅
-- **Phase 0** : Configuration projet, CI/CD, structure documentation
-- **Phase 1** : Analyse complète des données Velib (15+ champs documentés)
-- **Phase 2A** : Configuration environnement et fondation serveur de base
-- **Phase 2B** : Fondation protocole MCP et types de base
-- **Phase 3A** : Intégration API live et client de données
-- **Phase 3B** : Handlers MCP complets avec intégration données live
-- **Phase 4** : Nettoyage structure repository (suppression worktrees committés)
+### Phases terminées
 
-### Architecture Technique
-- **Serveur MCP Rust** pour données Velib Paris
-- **Deux datasets principaux** :
-  - Disponibilité stations en temps réel
-  - Localisations et métadonnées des stations
-- **Déploiement Scaleway** via GitHub Actions
-- **Suite de tests complète** (18+ tests)
-- **Validations sécurité** incluant limites zone service 50km
+- **Phase 0** : configuration projet, CI/CD, structure de documentation
+- **Phase 1** : analyse complète des données Velib (15+ champs documentés)
+- **Phase 2A** : configuration environnement et fondation serveur de base
+- **Phase 2B** : fondation protocole MCP et types de base
+- **Phase 3A** : intégration API live et client de données
+- **Phase 3B** : handlers MCP complets avec intégration données live
+- **Phase 4** : nettoyage structure du dépôt (suppression de worktrees committés)
 
-### Fichiers Importants
-- `/src/main.rs` - Point d'entrée principal
-- `/src/mcp/` - Implémentation protocole MCP
-- `/src/data/` - Client données et cache
-- `/src/types.rs` - Structures de données principales
-- `/docs/api/data_analysis.md` - Analyse données complète
-- `/docs/context/etat_actuel.md` - Suivi statut projet
+### Architecture technique
 
-### Commandes Développement
+- Serveur MCP Rust pour les données Velib Paris
+- Deux datasets : disponibilité temps réel et emplacements/métadonnées
+- Déploiement Scaleway via GitHub Actions
+- Suite de tests (18+ tests)
+- Validations sécurité incluant une limite de zone de service de 50 km
+
+### Fichiers importants
+
+- `src/main.rs` — point d'entrée principal
+- `src/mcp/` — implémentation du protocole MCP
+- `src/data/` — client données et cache
+- `src/types.rs` — structures de données principales
+- `docs/api/data_analysis.md` — analyse données complète
+- `docs/context/etat_actuel.md` — suivi de statut du projet
+
+### Commandes de développement
+
 ```bash
-cargo test                     # Tests complets
-cargo fmt                      # Formatage code
-cargo clippy                   # Analyse statique
-cargo audit                    # Audit sécurité
+cargo test      # Tests complets
+cargo fmt       # Formatage
+cargo clippy    # Analyse statique
+cargo audit     # Audit sécurité
 ```
 
 ### Déploiement
-- **Cible** : Scaleway Container Serverless
-- **Déclencheur** : Push vers branche main
-- **Registry** : Scaleway Container Registry
-- **Build** : Containerisation Podman
 
-### Gestion Worktrees
+- **Cible** : Scaleway Container Serverless
+- **Déclencheur** : push vers `main`
+- **Registry** : Scaleway Container Registry
+- **Build** : containerisation Podman
+
+### Gestion des worktrees
+
 ```bash
-# Créer nouveau worktree
+# Créer un nouveau worktree
 git worktree add ../branch-name branch-name
 cd ../branch-name
 ln -s ../velib-mcp/CLAUDE.md CLAUDE.md
 
-# Supprimer worktree
+# Supprimer un worktree
 git worktree remove ../branch-name
 git worktree prune
 ```
 
 ## Processus de Développement Multi-Agents
 
-### Architecture Optimisée pour Performance, Qualité et Autonomie
+Processus en 5 phases parallèles conçu pour maximiser la performance, la qualité et l'autonomie de l'équipe par rapport à une approche linéaire.
 
-Ce processus transforme l'approche linéaire traditionnelle en 5 phases parallèles pour maximiser l'efficacité d'équipe.
+### Phase 1 — Analyse concurrente (PM + Test Designer)
 
-#### Phase 1: Analyse Concurrente (PM + Test Designer)
-**Durée**: ~30 min | **Parallélisation**: PM et Test Designer travaillent simultanément
+**Durée** : ~30 min. PM et Test Designer travaillent en parallèle.
 
-**Product Manager (Rôle: Extraction de Valeur)**
-- Analyse issue GitHub avec template structuré
-- Extraction valeur métier claire et actionnable
-- Validation exigences avec dev-utilisateur
-- Production: Spécification fonctionnelle validée
+- **Product Manager (extraction de valeur)** : analyse l'issue GitHub avec un template structuré, extrait une valeur métier claire, valide les exigences avec le dev-utilisateur, et produit une spécification fonctionnelle validée.
+- **Test Designer (planification technique)** : analyse technique parallèle de l'issue, estimation des features/refactors uniques, planification des PRs et worktrees, et production d'un plan d'implémentation détaillé.
 
-**Test Designer (Rôle: Planification Technique)**
-- Analyse technique parallèle de l'issue
-- Estimation nombre features/refactors uniques
-- Planification PRs et worktrees nécessaires
-- Production: Plan d'implémentation détaillé
+### Phase 2 — Fondation tests (Test Designer)
 
-#### Phase 2: Fondation Tests (Test Designer)
-**Durée**: ~45 min | **Focus**: Environnement + Spécifications Test
+**Durée** : ~45 min. Focus : environnement + spécifications test.
 
-**Préparation Environnement**
+Préparation de l'environnement :
+
 ```bash
-# Création worktree optimisée avec template
 git worktree add ../feature-name feature/branch-name
 cd ../feature-name
 ln -s ../velib-mcp/CLAUDE.md CLAUDE.md
-cargo test --no-run  # Pré-compilation dependencies
+cargo test --no-run  # Pré-compilation des dépendances
 ```
 
-**Implémentation Tests TDD**
-- Tests d'intégration définissant comportement attendu
-- Tests unitaires pour composants critiques
-- Tests fuzz si applicable (données externes)
-- Validation: Tests échouent de manière attendue
+Implémentation TDD : tests d'intégration définissant le comportement attendu, tests unitaires des composants critiques, tests fuzz si applicable (données externes). Les tests doivent échouer comme attendu avant l'implémentation.
 
-#### Phase 3: Sprint Implémentation (Ingénieur)
-**Durée**: Variable | **Focus**: Développement avec Validation Continue
+### Phase 3 — Sprint d'implémentation (Ingénieur)
 
-**Workflow Micro-Commits**
+**Durée** : variable. Focus : développement avec validation continue.
+
+Workflow micro-commits :
+
 ```bash
-# Cycle développement optimisé
 while [[ $tests_failing ]]; do
     # Implémentation incrémentale
     cargo clippy --fix
@@ -144,84 +139,67 @@ while [[ $tests_failing ]]; do
 done
 ```
 
-**Intégration Continue Locale**
-- Validation automatique à chaque commit
-- Feedback temps réel des tests
-- Métriques qualité code continues
-- Résolution bloquants technique immédiate
+Intégration continue locale : validation automatique à chaque commit, feedback temps réel des tests, métriques qualité de code en continu, résolution immédiate des bloquants techniques.
 
-#### Phase 4: Révision Parallèle (Ingénieur + Réviseur)
-**Durée**: ~20 min | **Parallélisation**: Préparation + Analyse simultanées
+### Phase 4 — Révision parallèle (Ingénieur + Réviseur)
 
-**Ingénieur (Préparation PR)**
-- Organisation commits en histoire cohérente
-- Rédaction description PR succincte
-- Validation finale checks locaux
-- Ouverture PR avec lien issue origine
+**Durée** : ~20 min. Préparation et analyse se font en parallèle.
 
-**Réviseur Senior (Analyse Qualité)**
-- Évaluation architecture et patterns Rust
-- Vérification couverture tests vs objectifs PM
-- Analyse lisibilité et extensibilité code
-- Validation sécurité et ergonomie
+- **Ingénieur (préparation PR)** : organisation des commits en histoire cohérente, rédaction d'une description PR succincte, validation finale des checks locaux, ouverture de PR avec lien vers l'issue.
+- **Réviseur senior (analyse qualité)** : évaluation de l'architecture et des patterns Rust, vérification de la couverture des tests par rapport aux objectifs PM, lisibilité et extensibilité, sécurité et ergonomie.
+- **Boucle de feedback** : critères d'évaluation standardisés, dialogue constructif jusqu'à accord, résolution collaborative des points bloquants.
 
-**Boucle Feedback Structurée**
-- Critères évaluation standardisés
-- Dialogue constructif jusqu'accord
-- Résolution collaborative des points bloquants
+### Phase 5 — Intégration automatisée (Ops)
 
-#### Phase 5: Intégration Automatisée (Ops)
-**Durée**: ~10 min | **Focus**: Déploiement et Validation
+**Durée** : ~10 min. Focus : déploiement et validation.
 
-**Merge et CI/CD**
-- Merge automatique post-approbation
-- Validation CI complète sur main
-- Monitoring santé déploiement
-- Métriques performance production
+Merge automatique après approbation, validation CI complète sur `main`, monitoring du déploiement, métriques de performance en production.
 
-### Templates et Checklists
+### Templates et checklists
 
-#### Template Analyse Issue (PM)
+**Template d'analyse d'issue (PM)** :
+
 ```markdown
-## Valeur Métier
+## Valeur métier
 - [ ] Problème utilisateur identifié
 - [ ] Solution proposée claire
-- [ ] Critères succès mesurables
+- [ ] Critères de succès mesurables
 - [ ] Validation dev-utilisateur
 
-## Exigences Techniques
+## Exigences techniques
 - [ ] Contraintes techniques identifiées
 - [ ] Impact architecture évalué
 - [ ] Effort estimé (S/M/L/XL)
 ```
 
-#### Checklist Qualité (Réviseur)
+**Checklist qualité (Réviseur)** :
+
 ```markdown
-## Architecture & Design
-- [ ] Patterns Rust idiomatiques respectés
-- [ ] Séparation responsabilités claire
-- [ ] Gestion erreurs appropriée
+## Architecture & design
+- [ ] Patterns Rust idiomatiques
+- [ ] Séparation des responsabilités
+- [ ] Gestion d'erreurs appropriée
 - [ ] Performance optimisée
 
-## Tests & Couverture
-- [ ] Tests couvrent objectifs PM
+## Tests & couverture
+- [ ] Tests couvrent les objectifs PM
 - [ ] Edge cases identifiés et testés
 - [ ] Intégration validée
 - [ ] Documentation à jour
 ```
 
-### Métriques de Performance
+### Gains attendus vs processus linéaire
 
-**Gains Attendus vs Processus Linéaire**
-- **Temps cycle**: -40% (parallélisation phases)
-- **Temps attente**: -60% (élimination handoffs)
-- **Qualité code**: +25% (validation continue)
-- **Autonomie équipe**: +50% (rôles auto-suffisants)
+- **Temps de cycle** : −40 % (parallélisation des phases)
+- **Temps d'attente** : −60 % (élimination des handoffs)
+- **Qualité code** : +25 % (validation continue)
+- **Autonomie équipe** : +50 % (rôles auto-suffisants)
 
-### Intégration Architecture Existante
+### Intégration avec l'architecture existante
 
-Ce processus s'intègre parfaitement avec:
-- Architecture worktree existante (isolation parallèle)
-- CI/CD GitHub Actions (validation automatisée)
-- Hooks pre-commit (qualité continue)
-- Toolchain Rust standard (fmt, clippy, audit)
+Ce processus s'intègre avec :
+
+- l'architecture worktree (isolation parallèle)
+- GitHub Actions (validation automatisée)
+- les hooks pre-commit (qualité continue)
+- la toolchain Rust standard (`fmt`, `clippy`, `audit`)
