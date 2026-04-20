@@ -77,17 +77,27 @@ fn distance_is_non_negative_and_finite() {
 fn distance_is_translation_symmetric_along_equator() {
     // On the equator, a displacement of Δlon degrees covers the same
     // distance regardless of absolute longitude. This catches errors where
-    // latitude cosines are mishandled.
+    // latitude cosines are mishandled. We also exercise the antimeridian
+    // wrap-around path by wrapping longitudes into [-180, 180] rather than
+    // skipping samples whose endpoint crosses ±180°.
+    fn wrap_lon(x: f64) -> f64 {
+        // Map any real value into [-180, 180] via 360° modulo.
+        let y = ((x + 180.0).rem_euclid(360.0)) - 180.0;
+        // rem_euclid on 360 yields [0, 360); subtracting 180 gives [-180, 180).
+        // Clamp the upper endpoint to handle float edge cases gracefully.
+        if y >= 180.0 {
+            y - 360.0
+        } else {
+            y
+        }
+    }
     let mut rng = fastrand::Rng::with_seed(0xFACE_CAFE);
     for _ in 0..CASES {
         let lon = rng.f64() * 360.0 - 180.0;
         let delta = rng.f64() * 10.0; // up to 10°
-                                      // Guard against wrapping past ±180° for this property.
-        if lon + delta > 180.0 {
-            continue;
-        }
+        let lon_b = wrap_lon(lon + delta);
         let a = Coordinates::new(0.0, lon);
-        let b = Coordinates::new(0.0, lon + delta);
+        let b = Coordinates::new(0.0, lon_b);
         let a2 = Coordinates::new(0.0, 0.0);
         let b2 = Coordinates::new(0.0, delta);
         let d1 = a.distance_to(&b);
@@ -96,7 +106,7 @@ fn distance_is_translation_symmetric_along_equator() {
         // Distances can be several million meters; allow mm-scale slack.
         assert!(
             diff < 1e-3,
-            "equatorial Δlon={delta} should be translation-invariant, got d1={d1}, d2={d2}"
+            "equatorial Δlon={delta} should be translation-invariant (even across the antimeridian), got d1={d1}, d2={d2}, lon={lon}, lon_b={lon_b}"
         );
     }
 }
