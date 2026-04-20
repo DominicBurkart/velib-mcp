@@ -37,8 +37,14 @@ summarize_json()  { python3 "$PY" summary "$1" "$ROOT" "$COVERAGE_TOP_N"; }
 run_tarpaulin() {
   local out_dir="$1"
   mkdir -p "$out_dir"
-  log "running cargo tarpaulin -> $out_dir (up to 75s)"
-  ( cd "$ROOT" && cargo tarpaulin --skip-clean --ignore-tests \
+  # Isolate build artifacts per measurement so --skip-clean (kept for speed
+  # within a single run) cannot leak compiled output from a previous HEAD/base
+  # switch into the next measurement. Each out_dir gets its own target/.
+  local target_dir="$out_dir/target"
+  mkdir -p "$target_dir"
+  log "running cargo tarpaulin -> $out_dir (CARGO_TARGET_DIR=$target_dir, up to 75s)"
+  ( cd "$ROOT" && CARGO_TARGET_DIR="$target_dir" \
+      cargo tarpaulin --skip-clean --ignore-tests \
       --out Json --output-dir "$out_dir" --timeout 120 >&2 ) || return $?
   if [[ -f "$out_dir/tarpaulin-report.json" ]]; then
     printf '%s\n' "$out_dir/tarpaulin-report.json"
@@ -52,10 +58,17 @@ ratchet() {
   local base_ref="$1"
   mkdir -p "$COVERAGE_DIR/head" "$COVERAGE_DIR/base"
   local head_json base_json merge_base head_sha head_total base_total
-  head_json=$(run_tarpaulin "$COVERAGE_DIR/head")
+  # Resolve merge-base and the current HEAD BEFORE any measurement so the
+  # stash/checkout ordering is deterministic.
   merge_base=$(git merge-base HEAD "$base_ref" 2>/dev/null || git rev-parse "$base_ref")
   head_sha=$(git rev-parse HEAD)
   log "merge-base vs $base_ref = $merge_base"
+  # Measure the BASE first: stash any WIP, switch to merge-base, run tarpaulin
+  # in its own CARGO_TARGET_DIR, then return to HEAD and measure there. This
+  # ordering guarantees the base measurement is never contaminated by build
+  # artifacts produced while on HEAD (the original bug: running tarpaulin on
+  # HEAD first and then on base with --skip-clean meant base reused HEAD's
+  # incremental build outputs).
   log "stashing and checking out $merge_base"
   git stash push -u -m "coverage-ratchet-wip" >/dev/null 2>&1 || true
   git checkout -q "$merge_base"
@@ -64,6 +77,9 @@ ratchet() {
   fi
   git checkout -q "$head_sha"
   git stash pop >/dev/null 2>&1 || true
+  if ! head_json=$(run_tarpaulin "$COVERAGE_DIR/head"); then
+    return 2
+  fi
   head_total=$(uncovered_total "$head_json")
   base_total=$(uncovered_total "$base_json")
   {
