@@ -1,8 +1,8 @@
 //! Tests for MCP types: GeographicBounds, JsonRpc serde, and error conversion.
 
 use velib_mcp::mcp::types::{
-    FindNearbyStationsOutput, GeographicBounds, GetStationByCodeOutput, JsonRpcError,
-    JsonRpcRequest, JsonRpcResponse, SearchMetadata,
+    AvailabilityFilter, FindNearbyStationsOutput, GeographicBounds, GetStationByCodeOutput,
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, SearchMetadata,
 };
 use velib_mcp::types::Coordinates;
 
@@ -53,6 +53,64 @@ fn geographic_bounds_contains_point_on_boundary() {
     assert!(bounds.contains(&Coordinates::new(48.85, 2.30))); // west edge
                                                               // Corner
     assert!(bounds.contains(&Coordinates::new(48.90, 2.40)));
+}
+
+/// An inverted (south > north) bounding box should contain no points, not panic.
+#[test]
+fn geographic_bounds_inverted_north_south_contains_nothing() {
+    let inverted = GeographicBounds {
+        north: 48.80, // south > north — logically empty
+        south: 48.90,
+        east: 2.40,
+        west: 2.30,
+    };
+    // No point can satisfy both lat >= south (48.90) AND lat <= north (48.80)
+    assert!(!inverted.contains(&Coordinates::new(48.85, 2.35)));
+    assert!(!inverted.contains(&Coordinates::new(48.90, 2.35)));
+    assert!(!inverted.contains(&Coordinates::new(48.80, 2.35)));
+}
+
+/// An inverted (east < west) bounding box should contain no points, not panic.
+#[test]
+fn geographic_bounds_inverted_east_west_contains_nothing() {
+    let inverted = GeographicBounds {
+        north: 48.90,
+        south: 48.80,
+        east: 2.30,  // east < west — logically empty
+        west: 2.40,
+    };
+    assert!(!inverted.contains(&Coordinates::new(48.85, 2.35)));
+    assert!(!inverted.contains(&Coordinates::new(48.85, 2.30)));
+    assert!(!inverted.contains(&Coordinates::new(48.85, 2.40)));
+}
+
+// --- AvailabilityFilter defaults ---
+
+#[test]
+fn availability_filter_default_excludes_out_of_service() {
+    let filter = AvailabilityFilter::default();
+    assert!(
+        filter.exclude_out_of_service,
+        "exclude_out_of_service should default to true"
+    );
+    assert!(filter.bike_type.is_none(), "bike_type should default to None");
+    assert!(filter.min_bikes.is_none(), "min_bikes should default to None");
+    assert!(filter.min_docks.is_none(), "min_docks should default to None");
+}
+
+#[test]
+fn availability_filter_round_trips_through_json() {
+    let original = AvailabilityFilter {
+        min_bikes: Some(3),
+        min_docks: Some(2),
+        bike_type: None,
+        exclude_out_of_service: true,
+    };
+    let json = serde_json::to_value(&original).unwrap();
+    let round_tripped: AvailabilityFilter = serde_json::from_value(json).unwrap();
+    assert_eq!(round_tripped.min_bikes, Some(3));
+    assert_eq!(round_tripped.min_docks, Some(2));
+    assert!(round_tripped.exclude_out_of_service);
 }
 
 // --- JsonRpc serde round-trips ---

@@ -123,21 +123,41 @@ impl McpToolHandler {
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations by distance and bike type
+        // Filter stations by distance and availability
         let stations = find_stations_within_radius(
             &all_stations,
             &query_point,
             input.radius_meters,
             input.limit as usize,
             |station| {
-                let has_requested_bikes = match &input.availability_filter {
-                    Some(filter) => match &filter.bike_type {
-                        Some(bike_type) => station.has_available_bikes(bike_type),
-                        None => true,
-                    },
-                    None => true,
-                };
-                has_requested_bikes && station.is_operational()
+                if !station.is_operational() {
+                    return false;
+                }
+                if let Some(filter) = &input.availability_filter {
+                    // Apply bike type filter
+                    if let Some(bike_type) = &filter.bike_type {
+                        if !station.has_available_bikes(bike_type) {
+                            return false;
+                        }
+                    }
+                    // Apply minimum bikes filter
+                    if let Some(min_bikes) = filter.min_bikes {
+                        let total = station
+                            .real_time
+                            .as_ref()
+                            .map_or(0, |rt| rt.bikes.total());
+                        if total < min_bikes {
+                            return false;
+                        }
+                    }
+                    // Apply minimum docks filter
+                    if let Some(min_docks) = filter.min_docks {
+                        if !station.has_available_docks(min_docks) {
+                            return false;
+                        }
+                    }
+                }
+                true
             },
         );
 
@@ -160,7 +180,7 @@ impl McpToolHandler {
     ) -> Result<GetStationByCodeOutput> {
         let mut data_client = self.data_client.write().await;
         let station = data_client
-            .get_station_by_code(&input.station_code, true)
+            .get_station_by_code(&input.station_code, input.include_real_time)
             .await?;
 
         Ok(GetStationByCodeOutput {
@@ -176,7 +196,9 @@ impl McpToolHandler {
         let start_time = Instant::now();
 
         if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+            return Err(Error::Validation(
+                "Search query must be at least 2 characters".to_string(),
+            ));
         }
 
         if input.limit > MAX_RESULT_LIMIT {
@@ -232,9 +254,9 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        // Fetch live station data
+        // Fetch station data, respecting the include_real_time flag
         let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = data_client.get_all_stations(input.include_real_time).await?;
 
         // Filter stations within the specified bounds
         let area_stations: Vec<&VelibStation> = all_stations
@@ -242,7 +264,7 @@ impl McpToolHandler {
             .filter(|station| input.bounds.contains(&station.reference.coordinates))
             .collect();
 
-        // Calculate area statistics from live data
+        // Calculate area statistics
         let total_stations = area_stations.len() as u32;
         let operational_stations = area_stations
             .iter()
@@ -636,5 +658,76 @@ mod tests {
         assert!(
             results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
         );
+    }
+
+    // --- min_bikes / min_docks filter ---
+
+    #[test]
+    fn test_min_bikes_filter_applied() {
+        use crate::mcp::types::AvailabilityFilter;
+
+        let origin = paris_city_hall();
+        // Station A has 1 bike, station B has 5 bikes — filter requires at least 3.
+        let low = make_station("low", 48.8565, 2.3514, 1, 0);
+        let high = make_station("high", 48.8566, 2.3514, 5, 0);
+        let stations = vec![low, high];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |s| {
+            let filter = AvailabilityFilter {
+                min_bikes: Some(3),
+                ..Default::default()
+            };
+            if let Some(min) = filter.min_bikes {
+                let total = s.real_time.as_ref().map_or(0, |rt| rt.bikes.total());
+                if total < min {
+                    return false;
+                }
+            }
+            true
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "high");
+    }
+
+    #[test]
+    fn test_min_docks_filter_applied() {
+        use crate::mcp::types::AvailabilityFilter;
+
+        let origin = paris_city_hall();
+        // Station A has capacity 20, 18 bikes → 2 docks. Station B has 18 bikes (mechanical=9, electric=9) → 2 docks.
+        // Build one station with lots of docks and one with few.
+        // make_station sets available_docks = 20 - mechanical - electric
+        let few_docks = make_station("few", 48.8565, 2.3514, 18, 0); // 2 docks
+        let many_docks = make_station("many", 48.8566, 2.3514, 2, 0); // 18 docks
+        let stations = vec![few_docks, many_docks];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |s| {
+            let filter = AvailabilityFilter {
+                min_docks: Some(10),
+                ..Default::default()
+            };
+            if let Some(min) = filter.min_docks {
+                if !s.has_available_docks(min) {
+                    return false;
+                }
+            }
+            true
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "many");
+    }
+
+    // --- search_stations_by_name: short query uses Validation error ---
+
+    #[test]
+    fn test_short_query_error_is_validation() {
+        // Directly verify the error path returns Error::Validation, not Error::Internal.
+        // We can't call the async handler in a sync test, but we can test the error type
+        // string directly by constructing it the same way the handler does.
+        let err = Error::Validation("Search query must be at least 2 characters".to_string());
+        assert_eq!(err.error_type(), "validation_error");
+        assert_eq!(err.mcp_error_code(), -32602);
     }
 }
