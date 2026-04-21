@@ -17,11 +17,23 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
+/// Validate that a coordinate is within the Velib service area, returning the
+/// appropriate `Error` if not. Centralizes the two checks previously duplicated
+/// across each handler (valid Paris metro bounds + 50km-of-City-Hall).
+fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
+    if !coords.is_valid_paris_metro() {
+        return Err(Error::InvalidCoordinates {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+        });
+    }
+    if !coords.is_within_paris_service_area() {
+        return Err(Error::OutsideServiceArea {
+            distance_km: coords.distance_to_paris_city_hall_km(),
+        });
+    }
+    Ok(())
+}
 
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
@@ -42,10 +54,6 @@ fn find_stations_within_radius(
     let mut results: Vec<StationWithDistance> = stations
         .iter()
         .filter_map(|station| {
-            // Haversine distance in meters for earth-surface coordinates is always
-            // non-negative and bounded by ~2.0e7 (half Earth's circumference),
-            // well under `u32::MAX` (~4.3e9), so this saturating `f64 -> u32` cast
-            // cannot overflow in practice.
             let distance = origin.distance_to(&station.reference.coordinates) as u32;
             if distance <= radius_meters && predicate(station) {
                 Some(StationWithDistance {
@@ -61,16 +69,6 @@ fn find_stations_within_radius(
     results.sort_by_key(|s| s.straight_line_distance_meters);
     results.truncate(limit);
     results
-}
-
-/// Validate that coordinates are within the 50km Paris service area.
-/// Returns an appropriate error if they are not.
-fn validate_service_area(coords: &Coordinates) -> Result<()> {
-    if !coords.is_within_paris_service_area() {
-        let distance_km = coords.distance_to(&PARIS_CITY_HALL) / 1000.0;
-        return Err(Error::OutsideServiceArea { distance_km });
-    }
-    Ok(())
 }
 
 pub struct McpToolHandler {
@@ -120,9 +118,7 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-
-        // Validate coordinates are within 50km Paris service area
-        validate_service_area(&query_point)?;
+        ensure_in_service_area(&query_point)?;
 
         // Fetch live station data
         let mut data_client = self.data_client.write().await;
@@ -299,9 +295,8 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        // Validate both origin and destination are within 50km Paris service area
-        validate_service_area(&input.origin)?;
-        validate_service_area(&input.destination)?;
+        ensure_in_service_area(&input.origin)?;
+        ensure_in_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
         let mut data_client = self.data_client.write().await;
@@ -493,7 +488,7 @@ mod tests {
         let closest = make_station("closest", 48.8566, 2.3514, 1, 0); // ~11 m
         let middle = make_station("middle", 48.8575, 2.3514, 1, 0); // ~110 m
         let farthest = make_station("farthest", 48.8585, 2.3514, 1, 0); // ~220 m
-        let stations = vec![farthest, middle, closest];
+        let stations = vec![farthest.clone(), middle.clone(), closest.clone()];
 
         let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
 
@@ -620,5 +615,23 @@ mod tests {
         assert!(
             results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
         );
+    }
+
+    // --- ensure_in_service_area ---
+
+    #[test]
+    fn test_ensure_in_service_area_accepts_paris_center() {
+        let center = Coordinates::new(48.8566, 2.3522);
+        assert!(ensure_in_service_area(&center).is_ok());
+    }
+
+    #[test]
+    fn test_ensure_in_service_area_rejects_invalid_bounds() {
+        // Outside the Paris metro bounding box entirely.
+        let nyc = Coordinates::new(40.7128, -74.0060);
+        match ensure_in_service_area(&nyc) {
+            Err(Error::InvalidCoordinates { .. }) => {}
+            other => panic!("expected InvalidCoordinates, got {other:?}"),
+        }
     }
 }
