@@ -230,8 +230,8 @@ async fn tools_call_non_object_params_returns_500() {
 #[tokio::test]
 async fn tools_call_find_nearby_stations_dispatches_and_validates() {
     // Radius over 5000m triggers validation failure before any network I/O.
-    // The handler returns Err which `?` propagates out of
-    // `process_jsonrpc_request` into the 500 path.
+    // The handler returns Err which is wrapped into a JSON-RPC error response
+    // (HTTP 200) by `process_jsonrpc_request`.
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -248,16 +248,18 @@ async fn tools_call_find_nearby_stations_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    let msg = body["error"].as_str().unwrap();
-    assert!(msg.contains("radius") && msg.contains("99999"), "{msg}");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
+    let msg = body["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("radius") || msg.contains("99999"), "{msg}");
 }
 
 #[tokio::test]
 async fn tools_call_search_stations_by_name_dispatches_and_validates() {
     // Query under the 2-character minimum fails validation pre-network,
     // exercising the `search_stations_by_name` dispatch arm.
-    let (status, _) = post_mcp(json!({
+    // The error is wrapped into a JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 2,
         "method": "tools/call",
@@ -272,13 +274,15 @@ async fn tools_call_search_stations_by_name_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
 async fn tools_call_plan_bike_journey_dispatches_and_validates() {
     // (0, 0) origin fails Paris-bounds validation pre-network, exercising the
     // `plan_bike_journey` dispatch arm.
+    // The error is wrapped into a JSON-RPC error response (HTTP 200).
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 3,
@@ -293,8 +297,9 @@ async fn tools_call_plan_bike_journey_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(body["error"]
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
+    assert!(body["error"]["message"]
         .as_str()
         .unwrap()
         .to_lowercase()
@@ -302,11 +307,11 @@ async fn tools_call_plan_bike_journey_dispatches_and_validates() {
 }
 
 #[tokio::test]
-async fn tools_call_with_malformed_arguments_returns_500() {
+async fn tools_call_with_malformed_arguments_returns_jsonrpc_error() {
     // Arguments missing required `latitude` field make
-    // `serde_json::from_value` fail inside the `find_nearby_stations`
-    // dispatch arm; the `?` surfaces the JSON error as a 500.
-    let (status, _) = post_mcp(json!({
+    // `serde_json::from_value` fail inside `tool_text_content`; the error is
+    // wrapped into a JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
@@ -319,7 +324,8 @@ async fn tools_call_with_malformed_arguments_returns_500() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
@@ -345,8 +351,9 @@ async fn unknown_resource_uri_returns_404() {
 async fn tools_call_without_arguments_uses_default_empty_object() {
     // When `arguments` is absent, the server falls back to `json!({})` as the
     // default. For `search_stations_by_name`, that deserializes with a missing
-    // required `query` field, so serde fails and `?` surfaces as a 500.
-    let (status, _) = post_mcp(json!({
+    // required `query` field, so serde fails and the error is wrapped into a
+    // JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
@@ -356,7 +363,8 @@ async fn tools_call_without_arguments_uses_default_empty_object() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
