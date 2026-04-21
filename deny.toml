@@ -1,3 +1,8 @@
+[advisories]
+ignore = [
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; transitive via reqwest 0.11. No safe upgrade without bumping reqwest to 0.12 (tracked separately)." },
+]
+
 [licenses]
 allow = [
   "MIT",
@@ -7,6 +12,7 @@ allow = [
   "BSD-2-Clause",
   "BSD-3-Clause",
   "Unicode-DFS-2016",
+  "Unicode-3.0",
   "CC0-1.0",
   "Zlib",
   "OpenSSL",
