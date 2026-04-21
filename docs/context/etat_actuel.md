@@ -1,41 +1,49 @@
 # État Actuel du Projet Velib MCP
 
-## Phase Actuelle: Phase 2 - Architecture Système
+Date de dernière mise à jour: 2026-04-21
 
-### Statut: Prêt à commencer
-Date de dernière mise à jour: 2025-06-14
+## Phase Actuelle
 
-## Phase 0 - Configuration (TERMINÉE ✅)
-- ✅ Initialisation du projet Rust avec cargo
-- ✅ Configuration git et remote GitHub (DominicBurkart/velib-mcp)
-- ✅ Structure de documentation créée (/docs)
-- ✅ Configuration des hooks pre-commit (fmt, clippy, audit)
-- ✅ Workflow CI/CD GitHub Actions configuré
-- ✅ Dockerfile créé pour déploiement Scaleway (compatible Podman)
-- ✅ Système de suivi de contexte Claude initialisé
-- ✅ Documentation projet et README créés
+Phases 0–4 terminées (voir `CLAUDE.md` section « État Actuel du Projet » pour
+le détail faisant autorité). Le serveur expose les handlers MCP avec
+intégration des données live et est déployable sur Scaleway Container
+Serverless.
 
-## Phase 1 - Analyse des Données (TERMINÉE ✅)
-- ✅ Analyse complète du dataset disponibilité temps réel
-- ✅ Analyse complète du dataset emplacements des stations
-- ✅ Identification structure données et colonnes (15+ champs)
-- ✅ Documentation technique détaillée (/docs/api/data_analysis.md)
-- ✅ Schémas de données Rust complets (/docs/api/mcp_schemas.md)
-- ✅ Spécification interfaces MCP avec 5 tools (/docs/api/mcp_interface_spec.md)
+## Historique des Phases
 
-## Prochaines Étapes (Phase 2)
-1. 🎯 Architecturer le système et composants
-2. 🎯 Définir l'organisation modulaire du code Rust
-3. 🎯 Planifier l'approche agile avec PRs cohérentes
-4. 🎯 Documenter l'architecture dans /docs/decisions
+### Phase 0 — Configuration (terminée)
+- Initialisation du projet Rust avec cargo
+- Configuration git et remote GitHub (dominicburkart/velib-mcp)
+- Structure de documentation créée (`docs/`)
+- Hooks pre-commit (fmt, clippy, audit) — voir `README.md` section
+  « Pre-commit hooks »
+- Workflow CI/CD GitHub Actions
+- Dockerfile pour déploiement Scaleway (compatible Podman)
+- README et documentation initiale
+
+### Phase 1 — Analyse des Données (terminée)
+- Analyse des deux datasets (temps réel + emplacements)
+- Documentation technique : `docs/api/data_analysis.md`
+- Schémas Rust : `docs/api/mcp_schemas.md`
+- Spécification MCP (5 tools) : `docs/api/mcp_interface_spec.md`
+
+### Phase 2 — Fondation Serveur (terminée)
+- Environnement Rust et structure modulaire
+- Protocole MCP et types de base (`src/mcp/`, `src/types.rs`)
+
+### Phase 3 — Intégration Données (terminée)
+- Client API live et cache (`src/data/`)
+- Handlers MCP avec données temps réel
+
+### Phase 4 — Nettoyage Repository (terminée)
+- Suppression des worktrees committés par erreur
 
 ## Dépendances Techniques
-- Rust (version stable récente)
-- GitHub Actions pour CI/CD
-- Scaleway CLI pour déploiement
+- Rust stable (voir `rust-toolchain.toml`)
+- GitHub Actions (CI/CD)
+- Scaleway CLI (`scw`) pour déploiement
 - Podman pour conteneurisation
 
-## Notes Importantes
-- Repository configuré pour github.com/dominicburkart/velib-mcp
-- Email configuré: dominic@dominic.computer
-- Approche TDD requise pour toutes les fonctionnalités
+## Notes
+- Email de commit : dominic@dominic.computer
+- Approche TDD pour toutes les fonctionnalités
