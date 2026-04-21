@@ -1,0 +1,4 @@
+[default]
+ignore = ["tests/"]
+out = ["xml"]
+output-dir = "coverage"
