@@ -15,8 +15,10 @@ const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/cat
 const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records";
 
 // Cache TTLs
-const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
-const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
+// These are exposed as `pub` so `mcp::describe` can report them in the
+// self-documentation endpoint without duplicating the values.
+pub const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
+pub const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
 
 #[derive(Debug)]
 pub struct VelibDataClient {

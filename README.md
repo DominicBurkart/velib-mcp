@@ -44,6 +44,16 @@ This project exposes two key Parisian datasets through MCP:
 - `search_stations_by_name`: Search stations by name with optional fuzzy matching
 - `get_area_statistics`: Get aggregated statistics for a geographic area
 - `plan_bike_journey`: Plan a bike journey with pickup and dropoff suggestions
+- `describe_api`: Return the full machine-readable API contract (server info,
+  service area, units, cache TTLs, enum definitions, per-tool schemas, error
+  codes). Pass `format: "markdown"` for a human-readable rendering.
+
+### Self-documentation
+
+The same payload is also exposed as an MCP resource at
+`velib://api/description` (mime type `application/json`). Call `describe_api`
+or fetch the resource once at session start so the agent can reason about
+every tool, enum, and error code without reading the source.
 
 ## Integration with Other AI Tools
 

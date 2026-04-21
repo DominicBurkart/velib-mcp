@@ -222,98 +222,7 @@ impl McpServer {
         request: JsonRpcRequest,
     ) -> Result<JsonRpcResponse> {
         let result = match request.method.as_str() {
-            "tools/list" => Ok(json!({
-                "tools": [
-                    {
-                        "name": "find_nearby_stations",
-                        "description": "Find Velib stations within a radius of coordinates",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "latitude": {"type": "number", "minimum": 48.7, "maximum": 49.0},
-                                "longitude": {"type": "number", "minimum": 2.0, "maximum": 2.6},
-                                "radius_meters": {"type": "integer", "minimum": 100, "maximum": 5000, "default": 500},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
-                                "availability_filter": {"type": "object"}
-                            },
-                            "required": ["latitude", "longitude"]
-                        }
-                    },
-                    {
-                        "name": "get_station_by_code",
-                        "description": "Get detailed information about a specific station",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "station_code": {"type": "string"},
-                                "include_real_time": {"type": "boolean", "default": true}
-                            },
-                            "required": ["station_code"]
-                        }
-                    },
-                    {
-                        "name": "search_stations_by_name",
-                        "description": "Search stations by name with optional fuzzy matching",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string", "minLength": 2},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
-                                "fuzzy": {"type": "boolean", "default": true}
-                            },
-                            "required": ["query"]
-                        }
-                    },
-                    {
-                        "name": "get_area_statistics",
-                        "description": "Get aggregated statistics for a geographic area",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "bounds": {
-                                    "type": "object",
-                                    "properties": {
-                                        "north": {"type": "number"},
-                                        "south": {"type": "number"},
-                                        "east": {"type": "number"},
-                                        "west": {"type": "number"}
-                                    },
-                                    "required": ["north", "south", "east", "west"]
-                                },
-                                "include_real_time": {"type": "boolean", "default": true}
-                            },
-                            "required": ["bounds"]
-                        }
-                    },
-                    {
-                        "name": "plan_bike_journey",
-                        "description": "Plan a bike journey with pickup and dropoff suggestions",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {
-                                "origin": {
-                                    "type": "object",
-                                    "properties": {
-                                        "latitude": {"type": "number"},
-                                        "longitude": {"type": "number"}
-                                    },
-                                    "required": ["latitude", "longitude"]
-                                },
-                                "destination": {
-                                    "type": "object",
-                                    "properties": {
-                                        "latitude": {"type": "number"},
-                                        "longitude": {"type": "number"}
-                                    },
-                                    "required": ["latitude", "longitude"]
-                                },
-                                "preferences": {"type": "object"}
-                            },
-                            "required": ["origin", "destination"]
-                        }
-                    }
-                ]
-            })),
+            "tools/list" => Ok(json!({ "tools": tool_definitions() })),
             "tools/call" => {
                 let params = request
                     .params
@@ -346,6 +255,7 @@ impl McpServer {
                     "plan_bike_journey" => {
                         tool_text_content(arguments, |input| handler.plan_bike_journey(input)).await
                     }
+                    "describe_api" => describe_api_tool_response(arguments),
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
             }
@@ -374,9 +284,42 @@ impl McpServer {
                         "name": "Service Health Status",
                         "description": "System health and data source status information",
                         "mimeType": "application/json"
+                    },
+                    {
+                        "uri": "velib://api/description",
+                        "name": "Velib MCP API Self-Description",
+                        "description": "Machine-readable description of the MCP API: server info, \
+                                        service area, units, cache TTLs, enum definitions, per-tool \
+                                        schemas, and error codes. Static; safe to cache indefinitely \
+                                        within a server version.",
+                        "mimeType": "application/json"
                     }
                 ]
             })),
+            "resources/read" => {
+                let params = request
+                    .params
+                    .as_object()
+                    .ok_or_else(|| Error::McpProtocol("Invalid params".to_string()))?;
+                let uri = params
+                    .get("uri")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| Error::McpProtocol("Missing resource uri".to_string()))?;
+                match uri {
+                    "velib://api/description" => Ok(json!({
+                        "contents": [
+                            {
+                                "uri": uri,
+                                "mimeType": "application/json",
+                                "text": serde_json::to_string_pretty(
+                                    &super::describe::api_description()
+                                )?
+                            }
+                        ]
+                    })),
+                    _ => Err(Error::McpProtocol(format!("Unknown resource uri: {uri}"))),
+                }
+            }
             _ => Err(Error::McpProtocol(format!(
                 "Unknown method: {}",
                 request.method
@@ -398,6 +341,149 @@ impl McpServer {
             }),
         }
     }
+}
+
+/// Canonical list of tool definitions served by `tools/list` and re-used by
+/// [`crate::mcp::describe::api_description`] so the schema surface cannot drift
+/// between the JSON-RPC endpoint and the self-documentation payload.
+#[must_use]
+pub fn tool_definitions() -> Vec<Value> {
+    vec![
+        json!({
+            "name": "find_nearby_stations",
+            "description": "Find Velib stations within a radius of coordinates",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "latitude": {"type": "number", "minimum": 48.7, "maximum": 49.0},
+                    "longitude": {"type": "number", "minimum": 2.0, "maximum": 2.6},
+                    "radius_meters": {"type": "integer", "minimum": 100, "maximum": 5000, "default": 500},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+                    "availability_filter": {"type": "object"}
+                },
+                "required": ["latitude", "longitude"]
+            }
+        }),
+        json!({
+            "name": "get_station_by_code",
+            "description": "Get detailed information about a specific station",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "station_code": {"type": "string"},
+                    "include_real_time": {"type": "boolean", "default": true}
+                },
+                "required": ["station_code"]
+            }
+        }),
+        json!({
+            "name": "search_stations_by_name",
+            "description": "Search stations by name with optional fuzzy matching",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 2},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                    "fuzzy": {"type": "boolean", "default": true}
+                },
+                "required": ["query"]
+            }
+        }),
+        json!({
+            "name": "get_area_statistics",
+            "description": "Get aggregated statistics for a geographic area",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bounds": {
+                        "type": "object",
+                        "properties": {
+                            "north": {"type": "number"},
+                            "south": {"type": "number"},
+                            "east": {"type": "number"},
+                            "west": {"type": "number"}
+                        },
+                        "required": ["north", "south", "east", "west"]
+                    },
+                    "include_real_time": {"type": "boolean", "default": true}
+                },
+                "required": ["bounds"]
+            }
+        }),
+        json!({
+            "name": "plan_bike_journey",
+            "description": "Plan a bike journey with pickup and dropoff suggestions",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "origin": {
+                        "type": "object",
+                        "properties": {
+                            "latitude": {"type": "number"},
+                            "longitude": {"type": "number"}
+                        },
+                        "required": ["latitude", "longitude"]
+                    },
+                    "destination": {
+                        "type": "object",
+                        "properties": {
+                            "latitude": {"type": "number"},
+                            "longitude": {"type": "number"}
+                        },
+                        "required": ["latitude", "longitude"]
+                    },
+                    "preferences": {"type": "object"}
+                },
+                "required": ["origin", "destination"]
+            }
+        }),
+        json!({
+            "name": "describe_api",
+            "description": "Return a machine-readable description of this MCP API: server info, \
+                            service area, units, cache TTLs, enum definitions, per-tool schemas, \
+                            and error codes. Default format is JSON; pass format=\"markdown\" for \
+                            a human-readable rendering. Zero I/O.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "markdown"],
+                        "default": "json"
+                    }
+                },
+                "additionalProperties": false,
+                "required": []
+            }
+        }),
+    ]
+}
+
+/// Handle a `tools/call` for `describe_api`. Zero network I/O; the payload is
+/// produced entirely from compile-time constants and hard-coded metadata in
+/// [`crate::mcp::describe`].
+fn describe_api_tool_response(arguments: &Value) -> Result<Value> {
+    let format = arguments
+        .get("format")
+        .and_then(|v| v.as_str())
+        .unwrap_or("json");
+    let text = match format {
+        "json" => serde_json::to_string_pretty(&super::describe::api_description())?,
+        "markdown" => super::describe::api_description_markdown(),
+        other => {
+            return Err(Error::Validation(format!(
+                "unsupported format {other:?}; expected \"json\" or \"markdown\""
+            )));
+        }
+    };
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": text,
+            }
+        ]
+    }))
 }
 
 /// Deserialize `arguments` into the input type expected by `call`, invoke it,
@@ -464,6 +550,7 @@ async fn handle_resource(
             Ok(response) => Json(response).into_response(),
             Err(e) => resource_error(e, "Failed to fetch health status"),
         },
+        "velib://api/description" => Json(super::describe::api_description()).into_response(),
         _ => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Resource not found"})),

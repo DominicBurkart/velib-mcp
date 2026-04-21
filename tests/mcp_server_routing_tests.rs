@@ -69,7 +69,7 @@ async fn get_resource(uri: &str) -> (StatusCode, Value) {
 }
 
 #[tokio::test]
-async fn tools_list_returns_all_five_tools() {
+async fn tools_list_returns_all_tools() {
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -88,7 +88,8 @@ async fn tools_list_returns_all_five_tools() {
     assert!(names.contains(&"search_stations_by_name"));
     assert!(names.contains(&"get_area_statistics"));
     assert!(names.contains(&"plan_bike_journey"));
-    assert_eq!(tools.len(), 5);
+    assert!(names.contains(&"describe_api"));
+    assert_eq!(tools.len(), 6);
 }
 
 #[tokio::test]
@@ -111,7 +112,7 @@ async fn tools_list_entries_have_required_schema_fields() {
 }
 
 #[tokio::test]
-async fn resources_list_returns_four_resources() {
+async fn resources_list_returns_all_resources() {
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 7,
@@ -132,7 +133,8 @@ async fn resources_list_returns_four_resources() {
     assert!(uris.contains(&"velib://stations/realtime"));
     assert!(uris.contains(&"velib://stations/complete"));
     assert!(uris.contains(&"velib://health"));
-    assert_eq!(resources.len(), 4);
+    assert!(uris.contains(&"velib://api/description"));
+    assert_eq!(resources.len(), 5);
     for resource in resources {
         assert_eq!(resource["mimeType"], "application/json");
         assert!(resource["name"].is_string());
