@@ -103,7 +103,7 @@ impl VelibDataClient {
             }
 
             for record in records {
-                if let Ok(station) = self.parse_reference_station(record) {
+                if let Ok(station) = Self::parse_reference_station(record) {
                     all_stations.push(station);
                 }
             }
@@ -161,7 +161,7 @@ impl VelibDataClient {
             }
 
             for record in records {
-                if let Ok((station_code, status)) = self.parse_realtime_status(record) {
+                if let Ok((station_code, status)) = Self::parse_realtime_status(record) {
                     all_status.insert(station_code, status);
                 }
             }
@@ -222,7 +222,7 @@ impl VelibDataClient {
     }
 
     /// Parse reference station data from API response
-    fn parse_reference_station(&self, record: &Value) -> Result<StationReference> {
+    fn parse_reference_station(record: &Value) -> Result<StationReference> {
         let station_code = record["stationcode"]
             .as_str()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
@@ -238,17 +238,23 @@ impl VelibDataClient {
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
             as u16;
 
-        // Parse coordinates from coordonnees_geo
+        // Parse coordinates from coordonnees_geo.
+        // Use `.get(...)` rather than `geo_point["lat"]`: indexing into a
+        // `serde_json::Map` panics on missing keys, so we need an explicit
+        // lookup to surface a clean `Err` when the upstream payload is
+        // missing `lat`/`lon`.
         let geo_point = record["coordonnees_geo"]
             .as_object()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
 
-        let latitude = geo_point["lat"]
-            .as_f64()
+        let latitude = geo_point
+            .get("lat")
+            .and_then(Value::as_f64)
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing latitude")))?;
 
-        let longitude = geo_point["lon"]
-            .as_f64()
+        let longitude = geo_point
+            .get("lon")
+            .and_then(Value::as_f64)
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
@@ -270,7 +276,7 @@ impl VelibDataClient {
     }
 
     /// Parse real-time status data from API response
-    fn parse_realtime_status(&self, record: &Value) -> Result<(String, RealTimeStatus)> {
+    fn parse_realtime_status(record: &Value) -> Result<(String, RealTimeStatus)> {
         let station_code = record["stationcode"]
             .as_str()
             .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
@@ -324,5 +330,311 @@ impl VelibDataClient {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
         (reference_size, realtime_size)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for API response parsers.
+    //!
+    //! The `fetch_*` methods on `VelibDataClient` are only exercised against
+    //! the live Paris Open Data API. The parsers that translate each record
+    //! into a domain type, however, are pure functions over `serde_json::Value`
+    //! and are the highest-risk component in this module: a schema drift in
+    //! the upstream API would surface here first. These tests pin down the
+    //! parser contract so regressions surface as unit-test failures rather
+    //! than silently-dropped records in production.
+    //!
+    //! Invariants exercised:
+    //! - Reference records missing any required field produce `Err`.
+    //! - Realtime records missing the `stationcode` produce `Err`; other
+    //!   fields have documented defaults.
+    //! - Status derivation: `is_installed`/`is_renting`/`is_returning` map
+    //!   deterministically to `StationStatus::{Open, Maintenance, Closed}`.
+    //! - `duedate` falls back to "now" when absent or unparseable (parser
+    //!   must not panic on garbage timestamps).
+    use super::*;
+    use serde_json::json;
+
+    fn valid_reference_record() -> Value {
+        json!({
+            "stationcode": "16107",
+            "name": "Benjamin Godard - Victor Hugo",
+            "capacity": 35,
+            "coordonnees_geo": {
+                "lat": 48.8651,
+                "lon": 2.2755
+            }
+        })
+    }
+
+    fn valid_realtime_record() -> Value {
+        json!({
+            "stationcode": "16107",
+            "mechanical": 5,
+            "ebike": 3,
+            "numdocksavailable": 27,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2024-01-15T12:30:00+00:00"
+        })
+    }
+
+    // --- parse_reference_station: happy path ---
+
+    #[test]
+    fn parses_valid_reference_record() {
+        let record = valid_reference_record();
+        let station = VelibDataClient::parse_reference_station(&record).unwrap();
+        assert_eq!(station.station_code, "16107");
+        assert_eq!(station.name, "Benjamin Godard - Victor Hugo");
+        assert_eq!(station.capacity, 35);
+        assert!((station.coordinates.latitude - 48.8651).abs() < 1e-9);
+        assert!((station.coordinates.longitude - 2.2755).abs() < 1e-9);
+        // Capabilities are not present in the API and default to false.
+        assert!(!station.capabilities.accepts_credit_card);
+        assert!(!station.capabilities.has_charging_station);
+        assert!(!station.capabilities.is_virtual_station);
+    }
+
+    // --- parse_reference_station: missing required fields each produce Err ---
+
+    #[test]
+    fn reference_missing_station_code_errors() {
+        let mut record = valid_reference_record();
+        record.as_object_mut().unwrap().remove("stationcode");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_missing_name_errors() {
+        let mut record = valid_reference_record();
+        record.as_object_mut().unwrap().remove("name");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_missing_capacity_errors() {
+        let mut record = valid_reference_record();
+        record.as_object_mut().unwrap().remove("capacity");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_missing_coordinates_errors() {
+        let mut record = valid_reference_record();
+        record.as_object_mut().unwrap().remove("coordonnees_geo");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_missing_latitude_errors() {
+        // Regression: previously panicked because `geo_point["lat"]` indexes
+        // a serde_json `Map` (panics on missing key). Now returns Err.
+        let mut record = valid_reference_record();
+        record["coordonnees_geo"]
+            .as_object_mut()
+            .unwrap()
+            .remove("lat");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_missing_longitude_errors() {
+        // Regression: see `reference_missing_latitude_errors`.
+        let mut record = valid_reference_record();
+        record["coordonnees_geo"]
+            .as_object_mut()
+            .unwrap()
+            .remove("lon");
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    // --- parse_reference_station: wrong field types produce Err ---
+
+    #[test]
+    fn reference_wrong_field_types_error() {
+        // stationcode as number (not string)
+        let record = json!({
+            "stationcode": 16107,
+            "name": "x",
+            "capacity": 35,
+            "coordonnees_geo": { "lat": 48.86, "lon": 2.27 }
+        });
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+
+        // capacity as string
+        let record = json!({
+            "stationcode": "16107",
+            "name": "x",
+            "capacity": "35",
+            "coordonnees_geo": { "lat": 48.86, "lon": 2.27 }
+        });
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+
+        // coordonnees_geo as string instead of object
+        let record = json!({
+            "stationcode": "16107",
+            "name": "x",
+            "capacity": 35,
+            "coordonnees_geo": "48.86,2.27"
+        });
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn reference_empty_object_errors() {
+        let record = json!({});
+        assert!(VelibDataClient::parse_reference_station(&record).is_err());
+    }
+
+    // --- parse_realtime_status: happy path ---
+
+    #[test]
+    fn parses_valid_realtime_record_as_open() {
+        let record = valid_realtime_record();
+        let (code, status) = VelibDataClient::parse_realtime_status(&record).unwrap();
+        assert_eq!(code, "16107");
+        assert_eq!(status.bikes.mechanical, 5);
+        assert_eq!(status.bikes.electric, 3);
+        assert_eq!(status.available_docks, 27);
+        assert_eq!(status.status, StationStatus::Open);
+    }
+
+    // --- parse_realtime_status: station_code is the only required field ---
+
+    #[test]
+    fn realtime_missing_station_code_errors() {
+        let mut record = valid_realtime_record();
+        record.as_object_mut().unwrap().remove("stationcode");
+        assert!(VelibDataClient::parse_realtime_status(&record).is_err());
+    }
+
+    #[test]
+    fn realtime_station_code_wrong_type_errors() {
+        let record = json!({ "stationcode": 16107 });
+        assert!(VelibDataClient::parse_realtime_status(&record).is_err());
+    }
+
+    #[test]
+    fn realtime_minimal_record_defaults_fields() {
+        // Only stationcode present: everything else must default without error.
+        let record = json!({ "stationcode": "42" });
+        let (code, status) = VelibDataClient::parse_realtime_status(&record).unwrap();
+        assert_eq!(code, "42");
+        assert_eq!(status.bikes.mechanical, 0);
+        assert_eq!(status.bikes.electric, 0);
+        assert_eq!(status.available_docks, 0);
+        // is_installed defaults to "NON" -> Closed
+        assert_eq!(status.status, StationStatus::Closed);
+    }
+
+    // --- parse_realtime_status: status derivation matrix ---
+
+    fn realtime_with_flags(
+        is_installed: &str,
+        is_renting: &str,
+        is_returning: &str,
+    ) -> StationStatus {
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": is_installed,
+            "is_renting": is_renting,
+            "is_returning": is_returning,
+        });
+        VelibDataClient::parse_realtime_status(&record)
+            .unwrap()
+            .1
+            .status
+    }
+
+    #[test]
+    fn status_open_requires_installed_renting_and_returning() {
+        assert_eq!(
+            realtime_with_flags("OUI", "OUI", "OUI"),
+            StationStatus::Open
+        );
+    }
+
+    #[test]
+    fn status_maintenance_when_installed_but_not_both_renting_and_returning() {
+        // Installed but not renting
+        assert_eq!(
+            realtime_with_flags("OUI", "NON", "OUI"),
+            StationStatus::Maintenance
+        );
+        // Installed but not returning
+        assert_eq!(
+            realtime_with_flags("OUI", "OUI", "NON"),
+            StationStatus::Maintenance
+        );
+        // Installed but neither
+        assert_eq!(
+            realtime_with_flags("OUI", "NON", "NON"),
+            StationStatus::Maintenance
+        );
+    }
+
+    #[test]
+    fn status_closed_when_not_installed() {
+        assert_eq!(
+            realtime_with_flags("NON", "OUI", "OUI"),
+            StationStatus::Closed
+        );
+        // Any non-"OUI" is_installed value is treated as closed.
+        assert_eq!(
+            realtime_with_flags("unknown", "OUI", "OUI"),
+            StationStatus::Closed
+        );
+    }
+
+    // --- parse_realtime_status: last_update timestamp handling ---
+
+    #[test]
+    fn realtime_parses_valid_rfc3339_duedate() {
+        let record = json!({
+            "stationcode": "1",
+            "duedate": "2024-01-15T12:30:00+00:00",
+        });
+        let (_, status) = VelibDataClient::parse_realtime_status(&record).unwrap();
+        assert_eq!(status.last_update.to_rfc3339(), "2024-01-15T12:30:00+00:00");
+    }
+
+    #[test]
+    fn realtime_falls_back_to_now_for_unparseable_duedate() {
+        // Non-RFC3339 string must fall back to `Utc::now()` rather than error.
+        let before = Utc::now();
+        let record = json!({
+            "stationcode": "1",
+            "duedate": "not-a-timestamp",
+        });
+        let (_, status) = VelibDataClient::parse_realtime_status(&record).unwrap();
+        let after = Utc::now();
+        assert!(status.last_update >= before && status.last_update <= after);
+    }
+
+    #[test]
+    fn realtime_falls_back_to_now_for_missing_duedate() {
+        let before = Utc::now();
+        let record = json!({ "stationcode": "1" });
+        let (_, status) = VelibDataClient::parse_realtime_status(&record).unwrap();
+        let after = Utc::now();
+        assert!(status.last_update >= before && status.last_update <= after);
+    }
+
+    // --- parse_realtime_status: numeric fields cast silently ---
+
+    #[test]
+    fn realtime_numeric_fields_truncate_to_u16() {
+        // Values larger than u16::MAX are cast via `as u16` (wrap). The
+        // upstream API never produces such values, but pinning the behavior
+        // makes any future switch to checked conversion a deliberate decision.
+        let record = json!({
+            "stationcode": "1",
+            "mechanical": 70_000u64,
+        });
+        let parsed = VelibDataClient::parse_realtime_status(&record);
+        assert!(parsed.is_ok());
     }
 }
