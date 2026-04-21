@@ -23,6 +23,23 @@ const PARIS_CITY_HALL: Coordinates = Coordinates {
     longitude: 2.3514,
 };
 
+/// Validate that a coordinate is a well-formed Paris-metro point within the
+/// 50 km service area. Returns `InvalidCoordinates` for malformed points and
+/// `OutsideServiceArea` for points outside the service radius.
+fn validate_service_area(point: &Coordinates) -> Result<()> {
+    if !point.is_valid_paris_metro() {
+        return Err(Error::InvalidCoordinates {
+            latitude: point.latitude,
+            longitude: point.longitude,
+        });
+    }
+    if !point.is_within_paris_service_area() {
+        let distance_km = point.distance_to(&PARIS_CITY_HALL) / 1000.0;
+        return Err(Error::OutsideServiceArea { distance_km });
+    }
+    Ok(())
+}
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -106,18 +123,7 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-        if !query_point.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.latitude,
-                longitude: input.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall
-        if !query_point.is_within_paris_service_area() {
-            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        validate_service_area(&query_point)?;
 
         // Fetch live station data
         let mut data_client = self.data_client.write().await;
@@ -176,7 +182,9 @@ impl McpToolHandler {
         let start_time = Instant::now();
 
         if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+            return Err(Error::Validation(
+                "Search query must be at least 2 characters".to_string(),
+            ));
         }
 
         if input.limit > MAX_RESULT_LIMIT {
@@ -294,30 +302,8 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        if !input.origin.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.origin.latitude,
-                longitude: input.origin.longitude,
-            });
-        }
-
-        if !input.destination.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.destination.latitude,
-                longitude: input.destination.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall for both origin and destination
-        if !input.origin.is_within_paris_service_area() {
-            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
-
-        if !input.destination.is_within_paris_service_area() {
-            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        validate_service_area(&input.origin)?;
+        validate_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
         let mut data_client = self.data_client.write().await;
