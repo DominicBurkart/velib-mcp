@@ -445,74 +445,48 @@ async fn handle_resource(
     handler: Arc<McpToolHandler>,
     start_time: Instant,
 ) -> Response {
-    match uri.as_str() {
-        "velib://stations/reference" => {
-            match get_reference_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get reference stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch reference stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
-            }
+    // Branch-specific logic is limited to picking which resource future to
+    // await and a human-readable subject used in the error payload. The
+    // success/error serialization is shared below.
+    let (result, subject): (Result<Value>, &str) = match uri.as_str() {
+        "velib://stations/reference" => (
+            get_reference_stations_resource(Arc::clone(&handler)).await,
+            "reference stations",
+        ),
+        "velib://stations/realtime" => (
+            get_realtime_stations_resource(Arc::clone(&handler)).await,
+            "real-time stations",
+        ),
+        "velib://stations/complete" => (
+            get_complete_stations_resource(Arc::clone(&handler)).await,
+            "complete stations",
+        ),
+        "velib://health" => (
+            get_health_resource(Arc::clone(&handler), start_time).await,
+            "health status",
+        ),
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Resource not found"})),
+            )
+                .into_response();
         }
-        "velib://stations/realtime" => {
-            match get_realtime_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get real-time stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch real-time stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
-            }
+    };
+
+    match result {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            error!("Failed to get {}: {}", subject, e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": format!("Failed to fetch {subject}"),
+                    "details": e.to_string()
+                })),
+            )
+                .into_response()
         }
-        "velib://stations/complete" => {
-            match get_complete_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get complete stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch complete stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
-            }
-        }
-        "velib://health" => match get_health_resource(Arc::clone(&handler), start_time).await {
-            Ok(response) => Json(response).into_response(),
-            Err(e) => {
-                error!("Failed to get health status: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "error": "Failed to fetch health status",
-                        "details": e.to_string()
-                    })),
-                )
-                    .into_response()
-            }
-        },
-        _ => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Resource not found"})),
-        )
-            .into_response(),
     }
 }
 
