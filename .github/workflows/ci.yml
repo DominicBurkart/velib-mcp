@@ -84,6 +84,7 @@ jobs:
     name: Code Coverage
     runs-on: ubuntu-latest
     needs: [test]
+    environment: codecov
     steps:
     - uses: actions/checkout@v4
       with:
@@ -123,6 +124,7 @@ jobs:
       - clippy
       - security
       - feature-testing
+      - coverage
       - build
     steps:
     - uses: actions/checkout@v4
