@@ -1,7 +1,7 @@
 [advisories]
-ignore = [
-  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; transitive via reqwest 0.11. No safe upgrade without bumping reqwest to 0.12 (tracked separately)." },
-]
+# RUSTSEC-2025-0134 (rustls-pemfile unmaintained) is fixed at source by
+# bumping reqwest 0.11 -> 0.12 in this PR; no ignore needed.
+ignore = []
 
 [licenses]
 allow = [
