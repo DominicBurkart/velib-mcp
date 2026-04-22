@@ -31,6 +31,17 @@ jobs:
     - name: Enforce formatting
       run: cargo fmt --check
 
+  cargo-sort:
+    name: Cargo Sort
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Install cargo-sort
+      run: cargo install cargo-sort --locked
+    - name: Check Cargo.toml sorting
+      run: cargo-sort --check --workspace
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -69,13 +80,70 @@ jobs:
     - name: Test feature combinations
       run: cargo hack check --feature-powerset --depth 2 --no-dev-deps
 
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    needs: [test]
+    environment: codecov
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Install tarpaulin
+      run: cargo install cargo-tarpaulin --locked
+    - name: Run tarpaulin
+      run: cargo tarpaulin --ignore-tests --out xml --output-dir coverage
+    - uses: codecov/codecov-action@v5
+      with:
+        files: ./coverage/cobertura.xml
+        fail_ci_if_error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [test, fmt, clippy, security, feature-testing]
+    needs: [test, fmt, cargo-sort, clippy, security, feature-testing]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Build
       run: cargo build --release
+
+  all-checks:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 5
+    needs:
+      - test
+      - fmt
+      - cargo-sort
+      - clippy
+      - security
+      - feature-testing
+      - coverage
+      - build
+    steps:
+    - uses: actions/checkout@v4
+    - name: Verify gate covers every job
+      run: |
+        set -euo pipefail
+        all_jobs=$(yq -r '.jobs | keys | .[]' .github/workflows/ci.yml | sort)
+        gate_needs=$(yq -r '.jobs["all-checks"].needs | .[]' .github/workflows/ci.yml | sort)
+        expected=$(echo "$all_jobs" | grep -vx 'all-checks')
+        missing=$(comm -23 <(echo "$expected") <(echo "$gate_needs") || true)
+        if [ -n "$missing" ]; then
+          echo "::error::Jobs missing from 'all-checks'.needs:"
+          echo "$missing"
+          echo "Add them to .github/workflows/ci.yml under jobs.all-checks.needs"
+          exit 1
+        fi
+        echo "OK: all $(echo "$expected" | wc -l | tr -d ' ') non-gate jobs covered"
+    - name: Fail if any dependency did not succeed
+      if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+      run: |
+        echo "::error::One or more CI jobs failed, were cancelled, or were skipped"
+        exit 1

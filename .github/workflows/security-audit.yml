@@ -1,0 +1,196 @@
+name: Security Audit
+
+on:
+  schedule:
+    # Weekly on Monday at 9:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit (JSON output)
+        id: audit
+        run: |
+          set +e
+          cargo audit --json > audit-results.json 2>&1
+          AUDIT_EXIT=$?
+          echo "exit_code=$AUDIT_EXIT" >> "$GITHUB_OUTPUT"
+          set -e
+
+          # Parse vulnerabilities into a simpler format for later steps
+          if [ "$AUDIT_EXIT" -ne 0 ] && command -v jq &> /dev/null; then
+            jq -r '.vulnerabilities.list[]? | "\(.advisory.id)|\(.advisory.title)|\(.advisory.url)|\(.package.name)|\(.package.version)"' \
+              audit-results.json > vulns.txt || true
+          else
+            touch vulns.txt
+          fi
+
+      - name: Create issues for new vulnerabilities
+        if: steps.audit.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          while IFS='|' read -r id title url package version; do
+            [ -z "$id" ] && continue
+
+            ISSUE_TITLE="[security] ${id}: ${title}"
+
+            # Idempotent: skip if an open issue with this advisory ID already exists
+            EXISTING=$(gh issue list \
+              --label "security,automated" \
+              --search "$id" \
+              --state open \
+              --json number \
+              --jq 'length')
+
+            if [ "$EXISTING" -gt 0 ]; then
+              echo "Issue already exists for $id, skipping."
+              continue
+            fi
+
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --label "security,automated" \
+              --body "$(cat <<EOF
+          ## Vulnerability Report
+
+          | Field   | Value |
+          |---------|-------|
+          | Advisory | [$id]($url) |
+          | Package  | \`$package\` |
+          | Version  | \`$version\` |
+
+          ### Description
+          $title
+
+          ### Next Steps
+          - Review the advisory at $url
+          - Update the affected dependency
+          - Verify with \`cargo audit\`
+
+          ---
+          *This issue was automatically created by the security audit workflow.*
+          EOF
+          )"
+
+            echo "Created issue for $id"
+          done < vulns.txt
+
+      - name: Attempt automated fix
+        if: steps.audit.outputs.exit_code != '0'
+        id: fix
+        run: |
+          set +e
+          cargo audit fix --dry-run 2>&1
+          DRY_RUN_EXIT=$?
+          set -e
+
+          if [ "$DRY_RUN_EXIT" -eq 0 ]; then
+            echo "has_fix=false" >> "$GITHUB_OUTPUT"
+            echo "No fixable vulnerabilities found."
+          else
+            # Actually apply the fix
+            cargo audit fix 2>&1 || true
+
+            if git diff --quiet Cargo.toml Cargo.lock; then
+              echo "has_fix=false" >> "$GITHUB_OUTPUT"
+              echo "cargo audit fix produced no changes."
+            else
+              echo "has_fix=true" >> "$GITHUB_OUTPUT"
+              echo "cargo audit fix produced changes."
+            fi
+          fi
+
+      - name: Create fix PR
+        if: steps.fix.outputs.has_fix == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="automated/security-fix-$(date +%Y%m%d)"
+
+          # Check if a PR from this branch already exists
+          EXISTING_PR=$(gh pr list \
+            --head "$BRANCH" \
+            --state open \
+            --json number \
+            --jq 'length')
+
+          if [ "$EXISTING_PR" -gt 0 ]; then
+            echo "Fix PR already exists for branch $BRANCH, skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Cargo.toml Cargo.lock
+          git commit -m "fix(deps): apply cargo audit security fixes
+
+          Automated security dependency updates from cargo audit fix."
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --title "fix(deps): automated security dependency updates" \
+            --label "security,automated" \
+            --base main \
+            --body "$(cat <<EOF
+          ## Automated Security Fix
+
+          This PR was automatically created by the weekly security audit workflow.
+
+          \`cargo audit fix\` was able to resolve one or more vulnerabilities by
+          updating dependency versions in \`Cargo.toml\` / \`Cargo.lock\`.
+
+          ### Review Checklist
+          - [ ] CI passes
+          - [ ] No breaking changes from dependency updates
+          - [ ] \`cargo audit\` is clean after merge
+
+          ---
+          *This PR was automatically created by the security audit workflow.*
+          EOF
+          )"
+
+  retry-fix-prs:
+    name: Retry Open Fix PRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update open fix PR branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find open automated security fix PRs
+          PR_NUMBERS=$(gh pr list \
+            --label "security,automated" \
+            --state open \
+            --json number \
+            --jq '.[].number')
+
+          for pr in $PR_NUMBERS; do
+            echo "Attempting to update PR #$pr branch with latest main..."
+            gh pr update-branch "$pr" --rebase || echo "Could not update PR #$pr (may have conflicts)"
+          done
