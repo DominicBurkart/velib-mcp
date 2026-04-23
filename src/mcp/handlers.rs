@@ -35,6 +35,60 @@ fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
     Ok(())
 }
 
+/// Aggregate a set of stations into area statistics.
+///
+/// Pure function over an iterator so it can be unit-tested without any
+/// data-client wiring. Stations without real-time data contribute to
+/// `total_stations`, `operational_stations` (per `is_operational`), and
+/// `total_capacity`, but their bike/dock counts are treated as 0 -- the data is
+/// genuinely absent, and invented zeros for `has_bikes`/`has_docks` would be
+/// misleading. The `occupancy_rate` is bikes-over-capacity and returns 0.0
+/// when no capacity is present.
+fn aggregate_area_statistics<'a, I>(stations: I) -> AreaStatistics
+where
+    I: IntoIterator<Item = &'a VelibStation>,
+{
+    let mut total_stations = 0u32;
+    let mut operational_stations = 0u32;
+    let mut total_capacity = 0u32;
+    let mut total_mechanical = 0u32;
+    let mut total_electric = 0u32;
+    let mut total_available_docks = 0u32;
+
+    for station in stations {
+        total_stations += 1;
+        if station.is_operational() {
+            operational_stations += 1;
+        }
+        total_capacity += u32::from(station.reference.capacity);
+        if let Some(rt) = &station.real_time {
+            total_mechanical += u32::from(rt.bikes.mechanical);
+            total_electric += u32::from(rt.bikes.electric);
+            total_available_docks += u32::from(rt.available_docks);
+        }
+    }
+
+    let total_bikes = total_mechanical + total_electric;
+    let occupancy_rate = if total_capacity > 0 {
+        f64::from(total_bikes) / f64::from(total_capacity)
+    } else {
+        0.0
+    };
+
+    AreaStatistics {
+        total_stations,
+        operational_stations,
+        total_capacity,
+        available_bikes: AvailableBikesStats {
+            mechanical: total_mechanical,
+            electric: total_electric,
+            total: total_bikes,
+        },
+        available_docks: total_available_docks,
+        occupancy_rate,
+    }
+}
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -233,60 +287,15 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        // Fetch live station data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations within the specified bounds
-        let area_stations: Vec<&VelibStation> = all_stations
+        let area_stations = all_stations
             .iter()
-            .filter(|station| input.bounds.contains(&station.reference.coordinates))
-            .collect();
-
-        // Calculate area statistics from live data
-        let total_stations = area_stations.len() as u32;
-        let operational_stations = area_stations
-            .iter()
-            .filter(|station| station.is_operational())
-            .count() as u32;
-
-        let mut total_capacity = 0u32;
-        let mut total_mechanical = 0u32;
-        let mut total_electric = 0u32;
-        let mut total_available_docks = 0u32;
-
-        for station in &area_stations {
-            total_capacity += u32::from(station.reference.capacity);
-
-            if let Some(rt) = &station.real_time {
-                total_mechanical += u32::from(rt.bikes.mechanical);
-                total_electric += u32::from(rt.bikes.electric);
-                total_available_docks += u32::from(rt.available_docks);
-            }
-        }
-
-        let total_bikes = total_mechanical + total_electric;
-        let occupancy_rate = if total_capacity > 0 {
-            f64::from(total_bikes) / f64::from(total_capacity)
-        } else {
-            0.0
-        };
-
-        let stats = AreaStatistics {
-            total_stations,
-            operational_stations,
-            total_capacity,
-            available_bikes: AvailableBikesStats {
-                mechanical: total_mechanical,
-                electric: total_electric,
-                total: total_bikes,
-            },
-            available_docks: total_available_docks,
-            occupancy_rate,
-        };
+            .filter(|station| input.bounds.contains(&station.reference.coordinates));
 
         Ok(GetAreaStatisticsOutput {
-            area_stats: stats,
+            area_stats: aggregate_area_statistics(area_stations),
             bounds: input.bounds,
         })
     }
@@ -391,14 +400,6 @@ impl McpToolHandler {
     ) -> Result<Vec<crate::types::VelibStation>> {
         let mut data_client = self.data_client.write().await;
         data_client.get_all_stations(include_realtime).await
-    }
-
-    /// Test connectivity to data sources for health checks
-    pub async fn test_connectivity(&self) -> Result<()> {
-        let mut data_client = self.data_client.write().await;
-        // Simple connectivity test by fetching reference data
-        data_client.get_all_stations(false).await?;
-        Ok(())
     }
 }
 
@@ -633,5 +634,74 @@ mod tests {
             Err(Error::InvalidCoordinates { .. }) => {}
             other => panic!("expected InvalidCoordinates, got {other:?}"),
         }
+    }
+
+    // --- aggregate_area_statistics ---
+
+    #[test]
+    fn aggregate_empty_iterator_yields_zeroed_stats() {
+        let stats = aggregate_area_statistics(std::iter::empty());
+        assert_eq!(stats.total_stations, 0);
+        assert_eq!(stats.operational_stations, 0);
+        assert_eq!(stats.total_capacity, 0);
+        assert_eq!(stats.available_bikes.total, 0);
+        assert_eq!(stats.available_docks, 0);
+        assert_eq!(stats.occupancy_rate, 0.0);
+    }
+
+    #[test]
+    fn aggregate_sums_bikes_and_docks_across_stations() {
+        let a = make_station("a", 48.85, 2.35, 4, 2); // 6 bikes, 14 docks
+        let b = make_station("b", 48.86, 2.36, 1, 3); // 4 bikes, 16 docks
+        let stations = vec![a, b];
+
+        let stats = aggregate_area_statistics(&stations);
+
+        assert_eq!(stats.total_stations, 2);
+        assert_eq!(stats.operational_stations, 2);
+        assert_eq!(stats.total_capacity, 40); // 20 + 20
+        assert_eq!(stats.available_bikes.mechanical, 5);
+        assert_eq!(stats.available_bikes.electric, 5);
+        assert_eq!(stats.available_bikes.total, 10);
+        assert_eq!(stats.available_docks, 30);
+        // 10 bikes / 40 capacity = 0.25
+        assert!((stats.occupancy_rate - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn aggregate_counts_stations_without_realtime_as_operational() {
+        // Matches `VelibStation::is_operational`: missing real-time data
+        // defaults to operational.
+        let mut s = make_station("x", 48.85, 2.35, 0, 0);
+        s.real_time = None;
+
+        let stats = aggregate_area_statistics(std::iter::once(&s));
+
+        assert_eq!(stats.total_stations, 1);
+        assert_eq!(stats.operational_stations, 1);
+        assert_eq!(stats.total_capacity, 20);
+        assert_eq!(stats.available_bikes.total, 0);
+        assert_eq!(stats.available_docks, 0);
+        // bikes=0, capacity>0 -> occupancy 0.0
+        assert_eq!(stats.occupancy_rate, 0.0);
+    }
+
+    #[test]
+    fn aggregate_excludes_closed_stations_from_operational_count() {
+        let mut closed = make_station("closed", 48.85, 2.35, 5, 0);
+        if let Some(rt) = closed.real_time.as_mut() {
+            rt.status = StationStatus::Closed;
+        }
+        let open = make_station("open", 48.86, 2.36, 2, 0);
+        let stations = vec![closed, open];
+
+        let stats = aggregate_area_statistics(&stations);
+
+        assert_eq!(stats.total_stations, 2);
+        // Only the `Open` station counts as operational; the `Closed` one still
+        // contributes capacity and its bike count (accurate reporting, not
+        // availability for rental).
+        assert_eq!(stats.operational_stations, 1);
+        assert_eq!(stats.available_bikes.total, 7);
     }
 }
