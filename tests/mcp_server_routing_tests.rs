@@ -92,6 +92,27 @@ async fn tools_list_returns_all_five_tools() {
 }
 
 #[tokio::test]
+async fn search_stations_by_name_schema_limit_matches_handler_enforcement() {
+    // The advertised schema max must match the handler's `MAX_RESULT_LIMIT`
+    // (100). A drift here silently shrinks the tool's advertised capability
+    // and can be caught early by this regression test.
+    let (_, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .await;
+
+    let tools = body["result"]["tools"].as_array().unwrap();
+    let search = tools
+        .iter()
+        .find(|t| t["name"] == "search_stations_by_name")
+        .expect("schema includes search_stations_by_name");
+    assert_eq!(search["inputSchema"]["properties"]["limit"]["maximum"], 100);
+}
+
+#[tokio::test]
 async fn tools_list_entries_have_required_schema_fields() {
     let (_, body) = post_mcp(json!({
         "jsonrpc": "2.0",
@@ -378,6 +399,23 @@ async fn request_with_string_id_preserves_id_in_response() {
     .await;
 
     assert_eq!(body["id"], "client-generated-id");
+}
+
+#[tokio::test]
+async fn tools_list_accepts_request_with_omitted_params() {
+    // JSON-RPC 2.0 allows `params` to be omitted; the server must not reject
+    // parameterless calls like `tools/list`. Regression guard for the
+    // `#[serde(default)]` on `JsonRpcRequest::params`.
+    let (status, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/list"
+    }))
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["id"], 99);
+    assert!(body["result"]["tools"].is_array());
 }
 
 #[tokio::test]
