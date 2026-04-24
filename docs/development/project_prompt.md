@@ -16,4 +16,5 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 
 **But** : Rendre toute information possible de ces jeux de données accessible aux assistants IA pour la planification des transports et l'analyse des flux de trajets.
 
-[... rest of the original prompt content ...]
+Pour le contexte opérationnel complet (structure projet, phases, processus
+multi-agents), voir `CLAUDE.md` à la racine du dépôt.

@@ -28,7 +28,6 @@ pub struct McpServer {
 struct WebSocketClient {
     #[allow(dead_code)]
     id: String,
-    // Additional client metadata can be added here
 }
 
 impl Default for McpServer {

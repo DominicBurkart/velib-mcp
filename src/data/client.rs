@@ -253,11 +253,11 @@ impl VelibDataClient {
 
         let coordinates = crate::types::Coordinates::new(latitude, longitude);
 
-        // Parse service capabilities
+        // Service capabilities are not exposed by the current API.
         let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
+            accepts_credit_card: false,
+            has_charging_station: false,
+            is_virtual_station: false,
         };
 
         Ok(StationReference {

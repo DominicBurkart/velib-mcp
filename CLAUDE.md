@@ -29,12 +29,10 @@ Tu es un développeur Rust expert travaillant sur un projet open-source de serve
 **Important** : Ce fichier CLAUDE.md est partagé via symlinks vers tous les worktrees pour maintenir un contexte cohérent.
 
 ## Objectif du Projet
-Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA les deux jeux de données parisiens suivants :
+Créer un serveur cloud MCP performant exposant aux assistants IA les deux jeux de données parisiens suivants, pour la planification des transports et l'analyse des flux de trajets :
 
 - **Disponibilité temps réel** : https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/information/?disjunctive.is_renting&disjunctive.is_installed&disjunctive.is_returning&disjunctive.name&disjunctive.nom_arrondissement_communes
 - **Emplacements des stations** : https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/information/
-
-- **But** : Rendre toute information possible de ces jeux de données accessible aux assistants IA pour la planification des transports et l'analyse des flux de trajets.
 
 ## État Actuel du Projet
 
@@ -57,12 +55,12 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 - **Validations sécurité** incluant limites zone service 50km
 
 ### Fichiers Importants
-- `/src/main.rs` - Point d'entrée principal
-- `/src/mcp/` - Implémentation protocole MCP
-- `/src/data/` - Client données et cache
-- `/src/types.rs` - Structures de données principales
-- `/docs/api/data_analysis.md` - Analyse données complète
-- `/docs/context/etat_actuel.md` - Suivi statut projet
+- `src/main.rs` - Point d'entrée principal
+- `src/mcp/` - Implémentation protocole MCP
+- `src/data/` - Client données et cache
+- `src/types.rs` - Structures de données principales
+- `docs/api/data_analysis.md` - Analyse données complète
+- `docs/context/etat_actuel.md` - Suivi statut projet
 
 ### Commandes Développement
 ```bash
@@ -210,9 +208,8 @@ done
 - [ ] Documentation à jour
 ```
 
-### Métriques de Performance
+### Métriques de Performance (objectifs indicatifs vs processus linéaire)
 
-**Gains Attendus vs Processus Linéaire**
 - **Temps cycle**: -40% (parallélisation phases)
 - **Temps attente**: -60% (élimination handoffs)
 - **Qualité code**: +25% (validation continue)
@@ -220,8 +217,8 @@ done
 
 ### Intégration Architecture Existante
 
-Ce processus s'intègre parfaitement avec:
-- Architecture worktree existante (isolation parallèle)
+Ce processus s'appuie sur :
+- Architecture worktree (isolation parallèle)
 - CI/CD GitHub Actions (validation automatisée)
 - Hooks pre-commit (qualité continue)
 - Toolchain Rust standard (fmt, clippy, audit)
