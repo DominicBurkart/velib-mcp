@@ -191,6 +191,9 @@ pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub id: serde_json::Value,
     pub method: String,
+    /// JSON-RPC 2.0 permits omitting `params` entirely; default to null so
+    /// parameterless calls like `tools/list` need not include an empty object.
+    #[serde(default)]
     pub params: serde_json::Value,
 }
 

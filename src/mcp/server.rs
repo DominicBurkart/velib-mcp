@@ -8,7 +8,7 @@ use axum::{
 use chrono::Utc;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -20,15 +20,11 @@ use crate::{Error, Result};
 
 pub struct McpServer {
     tool_handler: Arc<McpToolHandler>,
-    clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
+    /// Live WebSocket client ids. Tracking them as a set (rather than a
+    /// `HashMap<String, Metadata>` with an unused metadata struct) keeps the
+    /// connection bookkeeping minimal while still allowing future extension.
+    clients: Arc<RwLock<HashSet<String>>>,
     start_time: Instant,
-}
-
-#[derive(Debug)]
-struct WebSocketClient {
-    #[allow(dead_code)]
-    id: String,
-    // Additional client metadata can be added here
 }
 
 impl Default for McpServer {
@@ -42,7 +38,7 @@ impl McpServer {
     pub fn new() -> Self {
         Self {
             tool_handler: Arc::new(McpToolHandler::new()),
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: Arc::new(RwLock::new(HashSet::new())),
             start_time: Instant::now(),
         }
     }
@@ -115,20 +111,14 @@ impl McpServer {
     async fn handle_websocket_connection(
         mut socket: WebSocket,
         handler: Arc<McpToolHandler>,
-        clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
+        clients: Arc<RwLock<HashSet<String>>>,
     ) {
         let client_id = uuid::Uuid::new_v4().to_string();
         info!("New WebSocket connection: {}", client_id);
 
-        // Add client to the map
         {
             let mut clients_guard = clients.write().await;
-            clients_guard.insert(
-                client_id.clone(),
-                WebSocketClient {
-                    id: client_id.clone(),
-                },
-            );
+            clients_guard.insert(client_id.clone());
         }
 
         // Handle messages
@@ -258,7 +248,7 @@ impl McpServer {
                             "type": "object",
                             "properties": {
                                 "query": {"type": "string", "minLength": 2},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
                             "required": ["query"]
@@ -534,22 +524,18 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
     }))
 }
 
-/// Get health resource data with real metrics
+/// Get health resource data with real metrics.
+///
+/// Reports real uptime, real cache sizes, and real data lag computed from the
+/// most recent `last_update` across all stations. A synthetic `hit_rate` is
+/// intentionally omitted: the cache does not track hits/misses, so fabricating
+/// a number would be misleading.
 async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) -> Result<Value> {
     let uptime_seconds = start_time.elapsed().as_secs();
 
-    // Get real cache statistics
     let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
 
-    // Calculate hit rate based on cache usage (simplified)
-    let hit_rate = if total_entries > 0 {
-        0.75 + (total_entries as f64 / 2000.0) * 0.2
-    } else {
-        0.0
-    };
-
-    // Fetch stations to compute real lag from most recent station last_update timestamp
     let (realtime_status, reference_status, lag_seconds, most_recent_update) =
         match handler.get_complete_stations(true).await {
             Ok(stations) => {
@@ -581,7 +567,6 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
             }
         },
         "cache_stats": {
-            "hit_rate": hit_rate.min(1.0),
             "entries": total_entries,
             "reference_cache_size": reference_cache_size,
             "realtime_cache_size": realtime_cache_size
