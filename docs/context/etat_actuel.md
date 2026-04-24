@@ -1,41 +1,36 @@
 # État Actuel du Projet Velib MCP
 
-## Phase Actuelle: Phase 2 - Architecture Système
+Dernière mise à jour : 2026-04-23
 
-### Statut: Prêt à commencer
-Date de dernière mise à jour: 2025-06-14
+## Statut global
 
-## Phase 0 - Configuration (TERMINÉE ✅)
-- ✅ Initialisation du projet Rust avec cargo
-- ✅ Configuration git et remote GitHub (DominicBurkart/velib-mcp)
-- ✅ Structure de documentation créée (/docs)
-- ✅ Configuration des hooks pre-commit (fmt, clippy, audit)
-- ✅ Workflow CI/CD GitHub Actions configuré
-- ✅ Dockerfile créé pour déploiement Scaleway (compatible Podman)
-- ✅ Système de suivi de contexte Claude initialisé
-- ✅ Documentation projet et README créés
+Toutes les phases planifiées (0 à 4) sont terminées. Le serveur MCP est
+fonctionnel, déployé via GitHub Actions vers Scaleway, et dispose d'une
+couverture de tests unitaires et d'intégration automatisée.
 
-## Phase 1 - Analyse des Données (TERMINÉE ✅)
-- ✅ Analyse complète du dataset disponibilité temps réel
-- ✅ Analyse complète du dataset emplacements des stations
-- ✅ Identification structure données et colonnes (15+ champs)
-- ✅ Documentation technique détaillée (/docs/api/data_analysis.md)
-- ✅ Schémas de données Rust complets (/docs/api/mcp_schemas.md)
-- ✅ Spécification interfaces MCP avec 5 tools (/docs/api/mcp_interface_spec.md)
+| Phase | Description | Statut |
+|-------|-------------|--------|
+| 0 | Configuration projet, CI/CD, documentation | Terminée |
+| 1 | Analyse des deux jeux de données Velib | Terminée |
+| 2A | Fondation serveur et environnement | Terminée |
+| 2B | Types MCP et protocole JSON-RPC 2.0 | Terminée |
+| 3A | Client données et cache TTL | Terminée |
+| 3B | Handlers MCP connectés aux données live | Terminée |
+| 4 | Nettoyage repo (worktrees committés retirés) | Terminée |
 
-## Prochaines Étapes (Phase 2)
-1. 🎯 Architecturer le système et composants
-2. 🎯 Définir l'organisation modulaire du code Rust
-3. 🎯 Planifier l'approche agile avec PRs cohérentes
-4. 🎯 Documenter l'architecture dans /docs/decisions
+## Interfaces livrées
 
-## Dépendances Techniques
-- Rust (version stable récente)
-- GitHub Actions pour CI/CD
-- Scaleway CLI pour déploiement
-- Podman pour conteneurisation
+- Tools MCP : [`find_nearby_stations`](../../src/mcp/handlers.rs),
+  `get_station_by_code`, `search_stations_by_name`,
+  `get_area_statistics`, `plan_bike_journey`.
+- Resources MCP : `velib://stations/reference`,
+  `velib://stations/realtime`, `velib://stations/complete`,
+  `velib://health`.
+- Transports : HTTP POST `/mcp` et WebSocket `/mcp/ws`
+  (voir [`src/mcp/server.rs`](../../src/mcp/server.rs)).
 
-## Notes Importantes
-- Repository configuré pour github.com/dominicburkart/velib-mcp
-- Email configuré: dominic@dominic.computer
-- Approche TDD requise pour toutes les fonctionnalités
+## Évolutions en cours
+
+Les améliorations itératives (qualité de code, couverture, clarté) sont
+pilotées par PRs individuelles. Voir les issues ouvertes sur GitHub pour
+la priorité actuelle.
