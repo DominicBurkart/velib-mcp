@@ -17,9 +17,9 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
-/// Validate that a coordinate is within the Velib service area, returning the
-/// appropriate `Error` if not. Centralizes the two checks previously duplicated
-/// across each handler (valid Paris metro bounds + 50km-of-City-Hall).
+/// Validate that a coordinate is within the Velib service area (valid Paris
+/// metro bounds and within 50km of City Hall), returning the appropriate
+/// `Error` if not.
 fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
     if !coords.is_valid_paris_metro() {
         return Err(Error::InvalidCoordinates {
@@ -38,12 +38,11 @@ fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
-/// Each matched station is cloned into the returned `StationWithDistance`. This
-/// is intentional: callers that hold the original slice (e.g. `plan_bike_journey`,
-/// which needs `all_stations` for both the pickup and the dropoff pass) must not
-/// have their data consumed. For `find_nearby_stations`, which previously used
-/// `into_iter()`, this introduces one extra clone per matched station; given the
-/// Paris Velib network of ~1,400 stations this overhead is negligible.
+/// Each matched station is cloned into the returned `StationWithDistance` so
+/// that callers retaining the original slice (e.g. `plan_bike_journey`, which
+/// reuses `all_stations` for both pickup and dropoff passes) are not
+/// consumed. The extra clone per match is negligible at the ~1,400-station
+/// scale of the Paris Velib network.
 fn find_stations_within_radius(
     stations: &[VelibStation],
     origin: &Coordinates,
