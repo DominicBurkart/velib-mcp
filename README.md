@@ -11,15 +11,14 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 
 ## Quick Start - Install with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
+Install the server, then register it with Claude Code:
 
 ```bash
-# Install and configure the server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+claude mcp add velib-mcp velib-mcp
 ```
 
-Then use in Claude Code:
+Example prompts in Claude Code:
 ```
 @velib find nearby stations at latitude 48.8566 longitude 2.3522
 @velib get station by code 16107
@@ -50,20 +49,17 @@ This project exposes two key Parisian datasets through MCP:
 <details>
 <summary>Click to expand integration guides</summary>
 
-### ChatGPT
+Install once (all clients):
 ```bash
-# Install server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
 ```
 
+### ChatGPT
+Run `velib-mcp` and wire it through ChatGPT Custom Instructions or the API.
+
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+Add to Cursor's `settings.json`:
+```json
 {
   "mcp.servers": {
     "velib": {
@@ -75,19 +71,10 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 ```
 
 ### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
-```
+Run `velib-mcp --port 8080` and call it via the API.
 
 ### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+Configure `velib-mcp` in Windsurf's MCP settings.
 
 </details>
 
@@ -119,16 +106,15 @@ cargo deny check licenses bans sources
 
 ### Pre-commit hooks
 
-`cargo-husky` is installed as a dev-dependency and automatically installs a Git
-pre-commit hook the first time `cargo test` (or any cargo command that builds
-dev-dependencies) runs. The hook lives at `.cargo-husky/hooks/pre-commit` and
-enforces:
+`cargo-husky` (dev-dependency) installs a Git pre-commit hook the first time
+any cargo command builds dev-dependencies (e.g. `cargo test`). The hook at
+`.cargo-husky/hooks/pre-commit` runs:
 
 - `cargo clippy --fix --all-features --all-targets`
 - `cargo fmt --all`
 - `cargo sort`
-- `cargo deny check licenses bans sources` (mirrors the `license-compliance` CI
-  job so license, bans, and source-provenance regressions are caught locally)
+- `cargo deny check licenses bans sources` (mirrors the `license-compliance`
+  CI job so regressions are caught locally)
 
 Any non-zero exit aborts the commit.
 
@@ -149,7 +135,7 @@ The project is configured for deployment to Scaleway Container Serverless via Gi
 ## Architecture
 
 - **Language**: Rust
-- **Deployment**: Scaleway Container Serverless  
+- **Deployment**: Scaleway Container Serverless
 - **CI/CD**: GitHub Actions
 - **Development**: Test-Driven Development approach
 - **Container**: Distroless Debian base image

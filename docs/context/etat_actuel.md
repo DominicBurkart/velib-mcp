@@ -1,9 +1,9 @@
 # État Actuel du Projet Velib MCP
 
-## Phase Actuelle: Phase 2 - Architecture Système
+## Phase Actuelle : voir `CLAUDE.md` pour l'état par phases
 
-### Statut: Prêt à commencer
-Date de dernière mise à jour: 2025-06-14
+Dernière mise à jour de ce fichier : 2025-06-14. Pour l'avancement détaillé
+à jour, se reporter à la section « État Actuel du Projet » de `CLAUDE.md`.
 
 ## Phase 0 - Configuration (TERMINÉE ✅)
 - ✅ Initialisation du projet Rust avec cargo
