@@ -150,6 +150,15 @@ impl McpToolHandler {
         }
     }
 
+    /// Acquire a write lock on the data client and fetch all stations with
+    /// real-time data.  Every handler that needs the full station list should
+    /// call this helper instead of repeating the lock-acquire + `get_all_stations`
+    /// sequence inline.
+    async fn fetch_stations(&self) -> Result<Vec<VelibStation>> {
+        let mut data_client = self.data_client.write().await;
+        data_client.get_all_stations(true).await
+    }
+
     pub async fn find_nearby_stations(
         &self,
         input: FindNearbyStationsInput,
@@ -175,8 +184,7 @@ impl McpToolHandler {
         ensure_in_service_area(&query_point)?;
 
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_stations().await?;
 
         // Filter stations by distance and bike type
         let stations = find_stations_within_radius(
@@ -242,8 +250,7 @@ impl McpToolHandler {
         }
 
         // Fetch live station data and search by name
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_stations().await?;
 
         let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
         let mut matching_stations: Vec<VelibStation> = all_stations
@@ -287,8 +294,7 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_stations().await?;
 
         let area_stations = all_stations
             .iter()
@@ -308,8 +314,7 @@ impl McpToolHandler {
         ensure_in_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
-        let mut data_client = self.data_client.write().await;
-        let all_stations = data_client.get_all_stations(true).await?;
+        let all_stations = self.fetch_stations().await?;
 
         // Get preferences or use defaults
         let preferences = input.preferences.unwrap_or_default();
