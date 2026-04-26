@@ -66,115 +66,87 @@ impl VelibDataClient {
         }
     }
 
+    /// Paginate through all pages of a Paris Open Data API endpoint, applying
+    /// `parse_fn` to every record and collecting the successful results.
+    ///
+    /// The loop terminates when an empty page is returned or when the page is
+    /// smaller than the requested limit (i.e. the last page has been reached).
+    /// Records for which `parse_fn` returns an error are silently skipped,
+    /// matching the previous per-method behaviour.
+    async fn paginate<T, F>(&mut self, url: &str, parse_fn: F) -> Result<Vec<T>>
+    where
+        F: Fn(&Value) -> Result<T>,
+    {
+        let mut results = Vec::new();
+        let mut offset = 0usize;
+        let limit = 100usize; // API limit
+
+        loop {
+            let query_params = &[
+                ("limit", &limit.to_string()),
+                ("offset", &offset.to_string()),
+            ];
+
+            let response = self.client.get_with_query(url, query_params).await?;
+            let json: Value = response.json().await?;
+            let records = json["results"]
+                .as_array()
+                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+
+            if records.is_empty() {
+                break;
+            }
+
+            for record in records {
+                if let Ok(item) = parse_fn(record) {
+                    results.push(item);
+                }
+            }
+
+            let page_len = records.len();
+            offset += limit;
+            if page_len < limit {
+                break; // Last page
+            }
+        }
+
+        Ok(results)
+    }
+
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
 
-        // Check cache first
         if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
         }
 
         info!("Fetching reference stations from Paris Open Data API");
+        let stations = self.paginate(VELIB_STATIONS_URL, parse_reference_station).await?;
+        info!("Fetched {} reference stations", stations.len());
 
-        let mut all_stations = Vec::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_STATIONS_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
-                if let Ok(station) = parse_reference_station(record) {
-                    all_stations.push(station);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
-
-        info!("Fetched {} reference stations", all_stations.len());
-
-        // Cache the results
         self.reference_cache
-            .insert(CACHE_KEY.to_string(), all_stations.clone())
+            .insert(CACHE_KEY.to_string(), stations.clone())
             .await;
 
-        Ok(all_stations)
+        Ok(stations)
     }
 
     /// Fetch real-time station status data
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
         const CACHE_KEY: &str = "all_realtime_status";
 
-        // Check cache first
         if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
         }
 
         info!("Fetching real-time status from Paris Open Data API");
-
-        let mut all_status = HashMap::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_REALTIME_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
-                if let Ok((station_code, status)) = parse_realtime_status(record) {
-                    all_status.insert(station_code, status);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
-
+        let pairs = self.paginate(VELIB_REALTIME_URL, parse_realtime_status).await?;
+        let all_status: HashMap<String, RealTimeStatus> = pairs.into_iter().collect();
         info!("Fetched real-time status for {} stations", all_status.len());
 
-        // Cache the results
         self.realtime_cache
             .insert(CACHE_KEY.to_string(), all_status.clone())
             .await;
