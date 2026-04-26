@@ -1,21 +1,31 @@
 {
   "project_name": "velib-mcp",
-  "current_phase": "Phase 2 - Architecture",
-  "last_updated": "2025-06-14",
+  "current_phase": "Maintenance",
+  "last_updated": "2026-04-26",
   "repository": "https://github.com/dominicburkart/velib-mcp",
   "main_branch": "main",
   "active_worktrees": [],
-  "completed_phases": ["Phase 0 - Configuration", "Phase 1 - Data Analysis"],
+  "completed_phases": [
+    "Phase 0 - Configuration",
+    "Phase 1 - Data Analysis",
+    "Phase 2A - Server Foundation",
+    "Phase 2B - MCP Protocol Types",
+    "Phase 3A - Live API Client",
+    "Phase 3B - MCP Handlers",
+    "Phase 4 - Repo Cleanup"
+  ],
   "current_tasks": {
     "in_progress": [
-      "System architecture design",
-      "Modular code organization planning"
+      "Iterative quality, coverage, and clarity improvements via individual PRs"
     ],
     "completed": [
       "Complete data analysis of both Velib datasets",
       "Rust data schemas and MCP interface specifications",
       "Technical documentation with 5 MCP tools defined",
-      "Project setup with CI/CD pipeline"
+      "Project setup with CI/CD pipeline",
+      "Live data client and TTL cache",
+      "MCP handlers wired to live data",
+      "Scaleway Container Serverless deployment via GitHub Actions"
     ]
   },
   "critical_decisions": [],
@@ -29,5 +39,6 @@
   "data_sources": [
     "https://opendata.paris.fr/explore/dataset/velib-disponibilite-en-temps-reel/",
     "https://opendata.paris.fr/explore/dataset/velib-emplacement-des-stations/"
-  ]
+  ],
+  "canonical_status_doc": "docs/context/etat_actuel.md"
 }
