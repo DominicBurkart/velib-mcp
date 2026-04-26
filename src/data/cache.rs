@@ -1,6 +1,5 @@
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
@@ -24,7 +23,7 @@ impl<T> CacheEntry<T> {
 
 #[derive(Debug)]
 pub struct InMemoryCache<K, V> {
-    entries: Arc<RwLock<HashMap<K, CacheEntry<V>>>>,
+    entries: RwLock<HashMap<K, CacheEntry<V>>>,
     default_ttl: Duration,
 }
 
@@ -36,7 +35,7 @@ where
     #[must_use]
     pub fn new(default_ttl: Duration) -> Self {
         Self {
-            entries: Arc::new(RwLock::new(HashMap::new())),
+            entries: RwLock::new(HashMap::new()),
             default_ttl,
         }
     }
