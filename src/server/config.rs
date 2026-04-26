@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
 
+use crate::Result;
+
 /// Parse server configuration from environment variables
-pub fn parse_server_address() -> Result<SocketAddr, String> {
+pub fn parse_server_address() -> Result<SocketAddr> {
     let port = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
@@ -11,7 +13,7 @@ pub fn parse_server_address() -> Result<SocketAddr, String> {
 
     format!("{ip}:{port}")
         .parse()
-        .map_err(|e| format!("Invalid IP or PORT environment variables: {e}"))
+        .map_err(|e| anyhow::anyhow!("Invalid IP or PORT environment variables: {e}").into())
 }
 
 #[cfg(test)]
@@ -79,7 +81,7 @@ mod tests {
 
         let result = parse_server_address();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid IP or PORT"));
+        assert!(result.unwrap_err().to_string().contains("Invalid IP or PORT"));
 
         env::remove_var("IP");
     }
@@ -105,7 +107,7 @@ mod tests {
 
         let result = parse_server_address();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Invalid IP or PORT"));
+        assert!(result.unwrap_err().to_string().contains("Invalid IP or PORT"));
 
         env::remove_var("PORT");
     }
