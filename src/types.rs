@@ -295,16 +295,6 @@ impl VelibStation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DataSource {
-    #[serde(rename = "paris_open_data")]
-    ParisOpenData,
-    #[serde(rename = "cache")]
-    Cache,
-    #[serde(rename = "fallback")]
-    Fallback,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
