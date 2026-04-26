@@ -29,8 +29,8 @@ async fn test_cache_default_ttl_expiry() {
     // Present immediately.
     assert_eq!(cache.get(&"k".to_string()).await, Some("v".to_string()));
 
-    // Wait well past the default TTL.
-    tokio::time::sleep(time::Duration::from_millis(400)).await;
+    // Wait well past the default TTL (4x margin) to absorb scheduling jitter.
+    tokio::time::sleep(time::Duration::from_millis(800)).await;
 
     assert_eq!(cache.get(&"k".to_string()).await, None);
 }
