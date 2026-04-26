@@ -38,14 +38,9 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 
 ## État Actuel du Projet
 
-### Phases Terminées ✅
-- **Phase 0** : Configuration projet, CI/CD, structure documentation
-- **Phase 1** : Analyse complète des données Velib (15+ champs documentés)
-- **Phase 2A** : Configuration environnement et fondation serveur de base
-- **Phase 2B** : Fondation protocole MCP et types de base
-- **Phase 3A** : Intégration API live et client de données
-- **Phase 3B** : Handlers MCP complets avec intégration données live
-- **Phase 4** : Nettoyage structure repository (suppression worktrees committés)
+La source de vérité du statut projet (phases terminées, interfaces livrées,
+évolutions en cours) est [`docs/context/etat_actuel.md`](docs/context/etat_actuel.md).
+Reportez-vous à ce fichier plutôt que de dupliquer la liste des phases ici.
 
 ### Architecture Technique
 - **Serveur MCP Rust** pour données Velib Paris
@@ -57,12 +52,12 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 - **Validations sécurité** incluant limites zone service 50km
 
 ### Fichiers Importants
-- `/src/main.rs` - Point d'entrée principal
-- `/src/mcp/` - Implémentation protocole MCP
-- `/src/data/` - Client données et cache
-- `/src/types.rs` - Structures de données principales
-- `/docs/api/data_analysis.md` - Analyse données complète
-- `/docs/context/etat_actuel.md` - Suivi statut projet
+- `src/main.rs` — point d'entrée principal
+- `src/mcp/` — implémentation protocole MCP
+- `src/data/` — client données et cache
+- `src/types.rs` — structures de données principales
+- [`docs/api/data_analysis.md`](docs/api/data_analysis.md) — analyse données complète
+- [`docs/context/etat_actuel.md`](docs/context/etat_actuel.md) — suivi statut projet
 
 ### Commandes Développement
 ```bash
@@ -94,9 +89,13 @@ git worktree prune
 
 ### Architecture Optimisée pour Performance, Qualité et Autonomie
 
-Ce processus transforme l'approche linéaire traditionnelle en 5 phases parallèles pour maximiser l'efficacité d'équipe.
+Ce processus transforme l'approche linéaire traditionnelle en 5 étapes
+parallèles pour maximiser l'efficacité d'équipe. Les numéros d'étape
+ci-dessous (Stage 1..5) désignent ce processus uniquement et sont
+distincts des phases projet (Phase 0..4) suivies dans
+[`docs/context/etat_actuel.md`](docs/context/etat_actuel.md).
 
-#### Phase 1: Analyse Concurrente (PM + Test Designer)
+#### Stage 1: Analyse Concurrente (PM + Test Designer)
 **Durée**: ~30 min | **Parallélisation**: PM et Test Designer travaillent simultanément
 
 **Product Manager (Rôle: Extraction de Valeur)**
@@ -111,7 +110,7 @@ Ce processus transforme l'approche linéaire traditionnelle en 5 phases parallè
 - Planification PRs et worktrees nécessaires
 - Production: Plan d'implémentation détaillé
 
-#### Phase 2: Fondation Tests (Test Designer)
+#### Stage 2: Fondation Tests (Test Designer)
 **Durée**: ~45 min | **Focus**: Environnement + Spécifications Test
 
 **Préparation Environnement**
@@ -129,7 +128,7 @@ cargo test --no-run  # Pré-compilation dependencies
 - Tests fuzz si applicable (données externes)
 - Validation: Tests échouent de manière attendue
 
-#### Phase 3: Sprint Implémentation (Ingénieur)
+#### Stage 3: Sprint Implémentation (Ingénieur)
 **Durée**: Variable | **Focus**: Développement avec Validation Continue
 
 **Workflow Micro-Commits**
@@ -150,7 +149,7 @@ done
 - Métriques qualité code continues
 - Résolution bloquants technique immédiate
 
-#### Phase 4: Révision Parallèle (Ingénieur + Réviseur)
+#### Stage 4: Révision Parallèle (Ingénieur + Réviseur)
 **Durée**: ~20 min | **Parallélisation**: Préparation + Analyse simultanées
 
 **Ingénieur (Préparation PR)**
@@ -170,7 +169,7 @@ done
 - Dialogue constructif jusqu'accord
 - Résolution collaborative des points bloquants
 
-#### Phase 5: Intégration Automatisée (Ops)
+#### Stage 5: Intégration Automatisée (Ops)
 **Durée**: ~10 min | **Focus**: Déploiement et Validation
 
 **Merge et CI/CD**
@@ -213,7 +212,7 @@ done
 ### Métriques de Performance
 
 **Gains Attendus vs Processus Linéaire**
-- **Temps cycle**: -40% (parallélisation phases)
+- **Temps cycle**: -40% (parallélisation étapes)
 - **Temps attente**: -60% (élimination handoffs)
 - **Qualité code**: +25% (validation continue)
 - **Autonomie équipe**: +50% (rôles auto-suffisants)
