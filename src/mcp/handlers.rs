@@ -636,6 +636,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_ensure_in_service_area_rejects_outside_service_area() {
+        // ~100 km north of Paris City Hall: within the broad bounding box
+        // (47.0–50.5°N, 0.0–5.0°E) but outside the 50 km service-area radius.
+        // This exercises the second branch of `ensure_in_service_area`.
+        let north_of_paris = Coordinates::new(49.75, 2.3522);
+        match ensure_in_service_area(&north_of_paris) {
+            Err(Error::OutsideServiceArea { distance_km }) => {
+                assert!(
+                    distance_km > 50.0,
+                    "expected distance > 50 km, got {distance_km:.1} km"
+                );
+            }
+            other => panic!("expected OutsideServiceArea, got {other:?}"),
+        }
+    }
+
     // --- aggregate_area_statistics ---
 
     #[test]
