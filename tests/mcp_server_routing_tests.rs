@@ -206,10 +206,10 @@ async fn tools_call_unknown_tool_returns_jsonrpc_error() {
 }
 
 #[tokio::test]
-async fn tools_call_missing_tool_name_returns_500() {
-    // The `?` after `ok_or_else(... "Missing tool name")` early-returns from
-    // `process_jsonrpc_request`, so the outer handler maps the error to a
-    // 500 with a plain `{"error": ...}` body (no JSON-RPC envelope).
+async fn tools_call_missing_tool_name_returns_jsonrpc_error() {
+    // Per JSON-RPC 2.0, protocol errors must be returned as HTTP 200 with a
+    // JSON-RPC error body rather than an HTTP 500. The server now returns a
+    // JSON-RPC error envelope with code -32603 when the tool name is absent.
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -220,8 +220,13 @@ async fn tools_call_missing_tool_name_returns_500() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(body["error"]
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["jsonrpc"], "2.0");
+    assert!(body["result"].is_null());
+    let error = &body["error"];
+    assert!(error.is_object());
+    assert_eq!(error["code"], -32603);
+    assert!(error["message"]
         .as_str()
         .unwrap()
         .to_lowercase()
@@ -229,9 +234,10 @@ async fn tools_call_missing_tool_name_returns_500() {
 }
 
 #[tokio::test]
-async fn tools_call_non_object_params_returns_500() {
-    // Same early-return path as the missing-tool-name case: `params.as_object()`
-    // returns None and `?` propagates "Invalid params" out as a 500.
+async fn tools_call_non_object_params_returns_jsonrpc_error() {
+    // Per JSON-RPC 2.0, protocol errors must be returned as HTTP 200 with a
+    // JSON-RPC error body rather than an HTTP 500. The server now returns a
+    // JSON-RPC error envelope with code -32600 when params is not an object.
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -240,8 +246,13 @@ async fn tools_call_non_object_params_returns_500() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(body["error"]
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["jsonrpc"], "2.0");
+    assert!(body["result"].is_null());
+    let error = &body["error"];
+    assert!(error.is_object());
+    assert_eq!(error["code"], -32600);
+    assert!(error["message"]
         .as_str()
         .unwrap()
         .to_lowercase()
