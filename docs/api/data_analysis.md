@@ -1,4 +1,4 @@
-# Analyse des Données Velib - Phase 1
+# Analyse des Données Velib
 
 ## Vue d'ensemble
 
@@ -6,6 +6,11 @@ Ce document analyse les deux jeux de données Velib disponibles via l'API Open D
 
 1. **Disponibilité temps réel** : État actuel des stations (vélos/emplacements disponibles)
 2. **Emplacements des stations** : Données de référence statiques des stations
+
+Documents liés :
+- [`mcp_schemas.md`](mcp_schemas.md) — schémas formels exposés via MCP.
+- [`mcp_interface_spec.md`](mcp_interface_spec.md) — endpoints MCP et exemples.
+- [`../../src/types.rs`](../../src/types.rs) — types Rust correspondants.
 
 ## Dataset 1 : Disponibilité Temps Réel
 
