@@ -121,7 +121,6 @@ impl McpServer {
             clients_guard.insert(client_id.clone());
         }
 
-        // Handle messages
         while let Some(msg) = socket.recv().await {
             match msg {
                 Ok(axum::extract::ws::Message::Text(text)) => {
@@ -194,11 +193,10 @@ impl McpServer {
                     error!("WebSocket error: {}", e);
                     break;
                 }
-                _ => {} // Ignore other message types
+                _ => {}
             }
         }
 
-        // Remove client from the map
         {
             let mut clients_guard = clients.write().await;
             clients_guard.remove(&client_id);
@@ -462,7 +460,6 @@ async fn handle_resource(
     }
 }
 
-/// Get reference stations resource data
 async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_reference_stations().await?;
 
@@ -476,11 +473,9 @@ async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result
     }))
 }
 
-/// Get real-time stations resource data  
 async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let realtime_status = handler.get_realtime_status().await?;
 
-    // Convert HashMap to Vec for JSON response
     let stations: Vec<Value> = realtime_status
         .iter()
         .map(|(station_code, status)| {
@@ -509,7 +504,6 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
     }))
 }
 
-/// Get complete stations resource data (reference + real-time)
 async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_complete_stations(true).await?;
 
@@ -524,8 +518,6 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
     }))
 }
 
-/// Get health resource data with real metrics.
-///
 /// Reports real uptime, real cache sizes, and real data lag computed from the
 /// most recent `last_update` across all stations. A synthetic `hit_rate` is
 /// intentionally omitted: the cache does not track hits/misses, so fabricating
