@@ -7,15 +7,13 @@ use crate::mcp::types::{
     GetStationByCodeInput, GetStationByCodeOutput, JourneyPreferences, JourneyRecommendation,
     PlanBikeJourneyInput, PlanBikeJourneyOutput, SearchMetadata, SearchStationsByNameInput,
     SearchStationsByNameOutput, StationWithDistance, TextSearchMetadata,
+    MAX_RESULT_LIMIT, MAX_SEARCH_RADIUS,
 };
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-
-const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
-const MAX_RESULT_LIMIT: u16 = 100;
 
 /// Validate that a coordinate is within the Velib service area, returning the
 /// appropriate `Error` if not. Centralizes the two checks previously duplicated
