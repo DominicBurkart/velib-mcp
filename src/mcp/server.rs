@@ -16,6 +16,7 @@ use tracing::{error, info, warn};
 
 use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use crate::types::DataFreshness;
 use crate::{Error, Result};
 
 pub struct McpServer {
@@ -476,7 +477,7 @@ async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result
     }))
 }
 
-/// Get real-time stations resource data  
+/// Get real-time stations resource data
 async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let realtime_status = handler.get_realtime_status().await?;
 
@@ -498,11 +499,22 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
         })
         .collect();
 
+    // Derive overall freshness from the most-recent last_update across all entries.
+    let data_freshness = realtime_status
+        .values()
+        .map(|s| s.last_update)
+        .max()
+        .map(|most_recent| {
+            let age_minutes = (Utc::now() - most_recent).num_seconds() as f64 / 60.0;
+            DataFreshness::from_age(age_minutes)
+        })
+        .unwrap_or(DataFreshness::VeryStale);
+
     Ok(json!({
         "stations": stations,
         "metadata": {
             "total_stations": stations.len(),
-            "data_freshness": "Fresh",
+            "data_freshness": data_freshness,
             "response_time": chrono::Utc::now(),
             "data_source": "live"
         }
@@ -513,11 +525,22 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_complete_stations(true).await?;
 
+    // Derive overall freshness from the most-recent last_update across all stations.
+    let data_freshness = stations
+        .iter()
+        .filter_map(|s| s.real_time.as_ref().map(|rt| rt.last_update))
+        .max()
+        .map(|most_recent| {
+            let age_minutes = (Utc::now() - most_recent).num_seconds() as f64 / 60.0;
+            DataFreshness::from_age(age_minutes)
+        })
+        .unwrap_or(DataFreshness::VeryStale);
+
     Ok(json!({
         "stations": stations,
         "metadata": {
             "total_stations": stations.len(),
-            "data_freshness": "Fresh",
+            "data_freshness": data_freshness,
             "response_time": chrono::Utc::now(),
             "data_source": "live"
         }
