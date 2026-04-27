@@ -298,7 +298,7 @@ Recherche textuelle dans les noms de stations.
     "limit": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 50,
+      "maximum": 100,
       "default": 10,
       "description": "Nombre maximum de résultats"
     },
@@ -453,8 +453,8 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
             "properties": {
               "pickup_station": {"$ref": "#/definitions/VelibStation"},
               "dropoff_station": {"$ref": "#/definitions/VelibStation"},
-              "walk_to_pickup": {"type": "integer"},
-              "walk_from_dropoff": {"type": "integer"},
+              "straight_line_to_pickup_meters": {"type": "integer"},
+              "straight_line_from_dropoff_meters": {"type": "integer"},
               "confidence_score": {
                 "type": "number",
                 "minimum": 0,
@@ -471,40 +471,41 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
 
 ## Gestion des Erreurs
 
-### Codes d'Erreur Standard
+### Format JSON-RPC
+Les erreurs sont retournées dans l'enveloppe JSON-RPC 2.0 standard avec un
+`error_type` machine-readable dans `data` :
+
 ```json
 {
   "error": {
-    "code": -32001,
-    "message": "Station not found",
+    "code": -32600,
+    "message": "Station not found: 99999",
     "data": {
-      "station_code": "99999",
-      "error_type": "STATION_NOT_FOUND"
+      "error_type": "station_not_found"
     }
   }
 }
 ```
 
-### Types d'Erreurs
-- `-32001` : Station non trouvée
-- `-32002` : Coordonnées invalides  
-- `-32003` : Données temps réel indisponibles
-- `-32004` : Rayon de recherche trop large
-- `-32005` : Limite de résultats dépassée
+### Codes JSON-RPC Utilisés
+La source autoritative est [`src/error.rs::Error::mcp_error_code`](../../src/error.rs).
+Les variantes mappent sur les codes JSON-RPC 2.0 standard :
+
+| Code | Variantes `Error` | `error_type` |
+|------|-------------------|--------------|
+| `-32001` | `Http`, `RateLimited` | `http_error`, `rate_limited` |
+| `-32600` | `StationNotFound` | `station_not_found` |
+| `-32602` | `InvalidCoordinates`, `OutsideServiceArea`, `SearchRadiusTooLarge`, `ResultLimitExceeded`, `Validation` | `invalid_coordinates`, `outside_service_area`, `search_radius_too_large`, `result_limit_exceeded`, `validation_error` |
+| `-32603` | `McpProtocol`, `Cache`, `Internal` | `mcp_protocol_error`, `cache_error`, `internal_error` |
+| `-32700` | `Json` (parse error) | `json_error` |
 
 ## Rate Limiting
 
-### Limites par Défaut
-- **Resources** : 60 requêtes/minute
-- **Tools** : 100 requêtes/minute
-- **Burst** : 10 requêtes/seconde
-
-### Headers de Réponse
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
-```
+Le serveur ne fait pas de rate-limiting au niveau applicatif (et ne renvoie
+aucun header `X-RateLimit-*`). Le seul rate-limiting visible côté client est
+celui de l'API Paris Open Data en amont, propagé via les erreurs `RateLimited`
+(code `-32001`) avec un champ `retry_after_seconds` calculé depuis l'en-tête
+`Retry-After` de la réponse 429.
 
 ## Authentification
 
@@ -542,8 +543,13 @@ velib://health
     }
   },
   "cache_stats": {
-    "hit_rate": 0.85,
-    "entries": 1400
+    "entries": 2,
+    "reference_cache_size": 1,
+    "realtime_cache_size": 1
   }
 }
 ```
+
+Note : `cache_stats` ne contient pas de `hit_rate` — le cache ne suit pas
+les hits/misses, et fabriquer une métrique synthétique serait trompeur.
+Voir [`get_health_resource`](../../src/mcp/server.rs).
