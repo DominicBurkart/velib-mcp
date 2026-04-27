@@ -10,13 +10,14 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, info};
 
-// Paris Open Data API endpoints
 const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-emplacement-des-stations/records";
 const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records";
 
-// Cache TTLs
-const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
-const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
+const REFERENCE_CACHE_TTL_MINUTES: i64 = 5;
+const REALTIME_CACHE_TTL_MINUTES: i64 = 2;
+
+/// Maximum records per page accepted by the Paris Open Data API.
+const API_PAGE_LIMIT: usize = 100;
 
 #[derive(Debug)]
 pub struct VelibDataClient {
@@ -41,20 +42,18 @@ impl VelibDataClient {
         }
     }
 
-    /// Create a new client with custom retry configuration
+    /// Create a new client with custom retry configuration.
     ///
     /// # Example
     /// ```
     /// use velib_mcp::data::{VelibDataClient, RetryConfig};
     ///
-    /// let retry_config = RetryConfig {
+    /// let client = VelibDataClient::with_retry_config(RetryConfig {
     ///     max_attempts: 5,
     ///     base_delay_seconds: 2,
     ///     max_delay_seconds: 120,
     ///     use_jitter: true,
-    /// };
-    ///
-    /// let client = VelibDataClient::with_retry_config(retry_config);
+    /// });
     /// ```
     #[must_use]
     pub fn with_retry_config(retry_config: RetryConfig) -> Self {
@@ -66,11 +65,10 @@ impl VelibDataClient {
         }
     }
 
-    /// Fetch all station reference data
+    /// Fetch all station reference data, using the cache when available.
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
 
-        // Check cache first
         if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
@@ -80,11 +78,10 @@ impl VelibDataClient {
 
         let mut all_stations = Vec::new();
         let mut offset = 0;
-        let limit = 100; // API limit
 
         loop {
             let query_params = &[
-                ("limit", &limit.to_string()),
+                ("limit", &API_PAGE_LIMIT.to_string()),
                 ("offset", &offset.to_string()),
             ];
 
@@ -99,7 +96,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -108,15 +105,14 @@ impl VelibDataClient {
                 }
             }
 
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
+            offset += API_PAGE_LIMIT;
+            if records.len() < API_PAGE_LIMIT {
+                break;
             }
         }
 
         info!("Fetched {} reference stations", all_stations.len());
 
-        // Cache the results
         self.reference_cache
             .insert(CACHE_KEY.to_string(), all_stations.clone())
             .await;
@@ -124,11 +120,10 @@ impl VelibDataClient {
         Ok(all_stations)
     }
 
-    /// Fetch real-time station status data
+    /// Fetch real-time station status data, using the cache when available.
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
         const CACHE_KEY: &str = "all_realtime_status";
 
-        // Check cache first
         if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
@@ -138,11 +133,10 @@ impl VelibDataClient {
 
         let mut all_status = HashMap::new();
         let mut offset = 0;
-        let limit = 100; // API limit
 
         loop {
             let query_params = &[
-                ("limit", &limit.to_string()),
+                ("limit", &API_PAGE_LIMIT.to_string()),
                 ("offset", &offset.to_string()),
             ];
 
@@ -157,7 +151,7 @@ impl VelibDataClient {
                 .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
 
             if records.is_empty() {
-                break; // No more records
+                break;
             }
 
             for record in records {
@@ -166,15 +160,14 @@ impl VelibDataClient {
                 }
             }
 
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
+            offset += API_PAGE_LIMIT;
+            if records.len() < API_PAGE_LIMIT {
+                break;
             }
         }
 
         info!("Fetched real-time status for {} stations", all_status.len());
 
-        // Cache the results
         self.realtime_cache
             .insert(CACHE_KEY.to_string(), all_status.clone())
             .await;
@@ -182,7 +175,7 @@ impl VelibDataClient {
         Ok(all_status)
     }
 
-    /// Get all stations with optional real-time data
+    /// Get all stations with optional real-time data.
     pub async fn get_all_stations(&mut self, include_realtime: bool) -> Result<Vec<VelibStation>> {
         let reference_stations = self.fetch_reference_stations().await?;
 
@@ -209,7 +202,7 @@ impl VelibDataClient {
         Ok(stations)
     }
 
-    /// Get a specific station by code
+    /// Get a specific station by code.
     pub async fn get_station_by_code(
         &mut self,
         station_code: &str,
@@ -221,13 +214,13 @@ impl VelibDataClient {
             .find(|station| station.reference.station_code == station_code))
     }
 
-    /// Clean up expired cache entries
+    /// Remove expired entries from both caches.
     pub async fn cleanup_cache(&self) {
         self.reference_cache.cleanup_expired().await;
         self.realtime_cache.cleanup_expired().await;
     }
 
-    /// Get cache statistics
+    /// Return (reference_cache_size, realtime_cache_size).
     pub async fn cache_stats(&self) -> (usize, usize) {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;

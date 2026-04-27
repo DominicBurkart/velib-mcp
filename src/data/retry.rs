@@ -3,65 +3,36 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-/// Configuration for retry behavior
+/// Retry configuration for HTTP requests that may encounter rate limiting or
+/// transient failures.
 ///
-/// This struct allows fine-tuning of the retry logic used for HTTP requests
-/// that may encounter rate limiting or temporary failures.
-///
-/// # Examples
-///
-/// Create a conservative retry configuration:
+/// # Example
 /// ```
 /// use velib_mcp::data::RetryConfig;
 ///
-/// let conservative = RetryConfig {
-///     max_attempts: 2,
-///     base_delay_seconds: 1,
-///     max_delay_seconds: 30,
-///     use_jitter: true,
-/// };
-/// ```
-///
-/// Create an aggressive retry configuration for high-availability scenarios:
-/// ```
-/// use velib_mcp::data::RetryConfig;
-///
-/// let aggressive = RetryConfig {
-///     max_attempts: 5,
-///     base_delay_seconds: 1,
+/// let config = RetryConfig {
+///     max_attempts: 5,       // 1 initial attempt + 4 retries
+///     base_delay_seconds: 2, // delay doubles each attempt: 2s, 4s, 8s, …
 ///     max_delay_seconds: 120,
-///     use_jitter: true,
+///     use_jitter: true,      // adds up to 25% random variation to avoid thundering herd
 /// };
 /// ```
 #[derive(Debug, Clone)]
 pub struct RetryConfig {
-    /// Maximum number of retry attempts (excluding initial attempt)
-    ///
-    /// For example, if set to 3, the total number of requests will be 4
-    /// (1 initial + 3 retries).
+    /// Retry attempts after the initial one (total requests = `max_attempts` + 1).
     pub max_attempts: u32,
-
-    /// Base delay for exponential backoff (in seconds)
-    ///
-    /// The actual delay for attempt N will be: `base_delay` * 2^N
-    /// (subject to `max_delay_seconds` and jitter).
+    /// Base delay in seconds; actual delay for attempt N is `base_delay * 2^N`,
+    /// capped at `max_delay_seconds`.
     pub base_delay_seconds: u64,
-
-    /// Maximum delay between retries (in seconds)
-    ///
-    /// Prevents exponential backoff from creating excessively long delays.
+    /// Upper bound on the inter-attempt delay in seconds.
     pub max_delay_seconds: u64,
-
-    /// Whether to add jitter to prevent thundering herd
-    ///
-    /// When true, adds up to 25% random variation to the calculated delay
-    /// to prevent multiple clients from retrying at exactly the same time.
+    /// When true, adds up to 25% random jitter to prevent synchronized retries.
     pub use_jitter: bool,
 }
 
 impl Default for RetryConfig {
     fn default() -> Self {
-        // Use shorter delays in test environment
+        // Shorter delays in test builds to keep the test suite fast.
         if cfg!(test) {
             Self {
                 max_attempts: 2,
@@ -80,27 +51,27 @@ impl Default for RetryConfig {
     }
 }
 
-/// Strategy for calculating retry delays
+/// Strategy for calculating retry delays.
 #[derive(Debug, Clone)]
 pub enum RetryStrategy {
-    /// Exponential backoff with optional jitter
+    /// Exponential backoff with optional jitter.
     ExponentialBackoff {
-        /// Base delay in seconds
+        /// Base delay in seconds.
         base_delay: u64,
-        /// Maximum delay in seconds
+        /// Maximum delay in seconds.
         max_delay: u64,
-        /// Whether to add jitter (up to 25% of calculated delay)
+        /// When true, adds up to 25% random jitter to the calculated delay.
         use_jitter: bool,
     },
-    /// Fixed delay between retries
+    /// Fixed delay between retries.
     FixedDelay {
-        /// Delay in seconds
+        /// Delay in seconds.
         delay: u64,
     },
 }
 
 impl RetryStrategy {
-    /// Calculate delay for a given attempt number (0-based)
+    /// Calculate delay for a given attempt number (0-based).
     #[must_use]
     pub fn calculate_delay(&self, attempt: u32) -> Duration {
         match self {
@@ -109,11 +80,9 @@ impl RetryStrategy {
                 max_delay,
                 use_jitter,
             } => {
-                let delay = base_delay * 2_u64.pow(attempt);
-                let delay = delay.min(*max_delay);
+                let delay = (base_delay * 2_u64.pow(attempt)).min(*max_delay);
 
                 if *use_jitter {
-                    // Add jitter up to 25% of delay
                     let jitter = (delay as f64 * 0.25 * fastrand::f64()).round() as u64;
                     Duration::from_secs(delay + jitter)
                 } else {
@@ -125,7 +94,7 @@ impl RetryStrategy {
     }
 }
 
-/// Retry policy for handling failed HTTP requests
+/// Retry policy for handling failed HTTP requests.
 #[derive(Debug)]
 pub struct RetryPolicy {
     config: RetryConfig,
@@ -133,13 +102,13 @@ pub struct RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// Create a new retry policy with default configuration
+    /// Create a new retry policy with default configuration.
     #[must_use]
     pub fn new() -> Self {
         Self::with_config(RetryConfig::default())
     }
 
-    /// Create a new retry policy with custom configuration
+    /// Create a new retry policy with custom configuration.
     #[must_use]
     pub fn with_config(config: RetryConfig) -> Self {
         let strategy = RetryStrategy::ExponentialBackoff {
@@ -151,7 +120,7 @@ impl RetryPolicy {
         Self { config, strategy }
     }
 
-    /// Execute a closure with retry logic
+    /// Execute a closure with retry logic.
     pub async fn execute<T, F, Fut>(&self, mut operation: F) -> Result<T>
     where
         F: FnMut() -> Fut,
@@ -175,12 +144,10 @@ impl RetryPolicy {
                 Err(error) => {
                     last_error = Some(error);
 
-                    // Don't retry on the last attempt
                     if attempt == self.config.max_attempts {
                         break;
                     }
 
-                    // Check if this is a retryable error
                     if let Some(last_error_ref) = last_error.as_ref() {
                         if !Self::is_retryable_error(last_error_ref) {
                             info!(
@@ -205,7 +172,6 @@ impl RetryPolicy {
             }
         }
 
-        // Return the last error if all attempts failed
         let final_error = last_error.unwrap();
         info!(
             "All retry attempts exhausted ({} total attempts). Final error: {}",
@@ -215,20 +181,18 @@ impl RetryPolicy {
         Err(final_error)
     }
 
-    /// Check if an error is retryable
+    /// Returns true for errors that are worth retrying (transient server/network
+    /// failures). Returns false for client errors that will not change on retry.
     fn is_retryable_error(error: &Error) -> bool {
         match error {
             Error::Http(reqwest_error) => {
                 if let Some(status) = reqwest_error.status() {
-                    // Retry on 429 (Rate Limited), 500, 502, 503, 504
                     matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504)
                 } else {
-                    // Retry on network errors (no status code)
                     true
                 }
             }
             Error::RateLimited { .. } => true,
-            // Don't retry on validation errors or other client errors
             _ => false,
         }
     }
@@ -240,7 +204,7 @@ impl Default for RetryPolicy {
     }
 }
 
-/// Helper function to extract retry-after header from reqwest error
+/// Extract the `Retry-After` header value (seconds) from a response, if present.
 pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
     response
         .headers()
@@ -249,7 +213,8 @@ pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option
         .and_then(|s| s.parse::<u64>().ok())
 }
 
-/// Helper function to create rate limited error from HTTP response
+/// Build a `RateLimited` error from a response, including the `Retry-After`
+/// header value when the server provides one.
 pub fn create_rate_limited_error(response: &reqwest::Response) -> Error {
     let retry_after = extract_retry_after_from_response(response);
     Error::RateLimited {
@@ -257,7 +222,7 @@ pub fn create_rate_limited_error(response: &reqwest::Response) -> Error {
     }
 }
 
-/// Wrapper for making HTTP requests with retry logic
+/// HTTP client that wraps `reqwest` with automatic retry logic.
 #[derive(Debug)]
 pub struct RetryableHttpClient {
     client: reqwest::Client,
@@ -265,13 +230,13 @@ pub struct RetryableHttpClient {
 }
 
 impl RetryableHttpClient {
-    /// Create a new retryable HTTP client with default retry policy
+    /// Create a new retryable HTTP client with default retry policy.
     #[must_use]
     pub fn new() -> Self {
         Self::with_retry_policy(RetryPolicy::new())
     }
 
-    /// Create a new retryable HTTP client with custom retry policy
+    /// Create a new retryable HTTP client with custom retry policy.
     #[must_use]
     pub fn with_retry_policy(retry_policy: RetryPolicy) -> Self {
         Self {
@@ -303,7 +268,7 @@ impl RetryableHttpClient {
         Ok(response)
     }
 
-    /// Make a GET request with retry logic
+    /// Make a GET request with retry logic.
     pub async fn get(&self, url: &str) -> Result<reqwest::Response> {
         debug!("Making GET request to: {}", url);
 
@@ -315,7 +280,7 @@ impl RetryableHttpClient {
             .await
     }
 
-    /// Make a GET request with query parameters and retry logic
+    /// Make a GET request with query parameters and retry logic.
     pub async fn get_with_query<T>(&self, url: &str, query: &T) -> Result<reqwest::Response>
     where
         T: serde::Serialize + ?Sized,
@@ -330,7 +295,7 @@ impl RetryableHttpClient {
             .await
     }
 
-    /// Get the underlying reqwest client
+    /// Get the underlying reqwest client.
     #[must_use]
     pub fn client(&self) -> &reqwest::Client {
         &self.client
