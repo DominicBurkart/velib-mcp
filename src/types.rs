@@ -47,14 +47,19 @@ impl Coordinates {
         earth_radius * c
     }
 
-    /// Check if coordinates are within reasonable bounds for Paris metro area
+    /// Check if coordinates are within a broad geographic region that includes
+    /// Paris and its surroundings (up to ~250 km away). This coarse filter
+    /// rejects clearly-wrong inputs (e.g. NYC, London) before the precise
+    /// 50 km service-area check. Using a wide bounding box ensures coordinates
+    /// that are near Paris but outside the 50 km radius are handled by
+    /// `is_within_paris_service_area` rather than this check.
     #[must_use]
     pub fn is_valid_paris_metro(&self) -> bool {
-        // Paris metro area bounds (approximate)
-        self.latitude >= 48.7
-            && self.latitude <= 49.0
-            && self.longitude >= 2.0
-            && self.longitude <= 2.6
+        // Broad bounding box: ~250 km around Paris
+        self.latitude >= 47.0
+            && self.latitude <= 50.5
+            && self.longitude >= 0.0
+            && self.longitude <= 5.0
     }
 
     /// Check if coordinates are within 50km of Paris City Hall (Hôtel de Ville)
