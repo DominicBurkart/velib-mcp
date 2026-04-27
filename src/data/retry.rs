@@ -80,56 +80,15 @@ impl Default for RetryConfig {
     }
 }
 
-/// Strategy for calculating retry delays
-#[derive(Debug, Clone)]
-pub enum RetryStrategy {
-    /// Exponential backoff with optional jitter
-    ExponentialBackoff {
-        /// Base delay in seconds
-        base_delay: u64,
-        /// Maximum delay in seconds
-        max_delay: u64,
-        /// Whether to add jitter (up to 25% of calculated delay)
-        use_jitter: bool,
-    },
-    /// Fixed delay between retries
-    FixedDelay {
-        /// Delay in seconds
-        delay: u64,
-    },
-}
-
-impl RetryStrategy {
-    /// Calculate delay for a given attempt number (0-based)
-    #[must_use]
-    pub fn calculate_delay(&self, attempt: u32) -> Duration {
-        match self {
-            RetryStrategy::ExponentialBackoff {
-                base_delay,
-                max_delay,
-                use_jitter,
-            } => {
-                let delay = base_delay * 2_u64.pow(attempt);
-                let delay = delay.min(*max_delay);
-
-                if *use_jitter {
-                    // Add jitter up to 25% of delay
-                    let jitter = (delay as f64 * 0.25 * fastrand::f64()).round() as u64;
-                    Duration::from_secs(delay + jitter)
-                } else {
-                    Duration::from_secs(delay)
-                }
-            }
-            RetryStrategy::FixedDelay { delay } => Duration::from_secs(*delay),
-        }
-    }
-}
-
-/// Retry policy for handling failed HTTP requests
+/// Retry policy for handling failed HTTP requests.
+///
+/// The schedule is exponential backoff with optional jitter, derived directly
+/// from `RetryConfig`. A `RetryStrategy` enum previously wrapped these same
+/// fields with a second `FixedDelay` variant, but no production code path ever
+/// constructed it; the indirection has been removed.
 #[derive(Debug)]
 pub struct RetryPolicy {
     config: RetryConfig,
-    strategy: RetryStrategy,
 }
 
 impl RetryPolicy {
@@ -142,13 +101,25 @@ impl RetryPolicy {
     /// Create a new retry policy with custom configuration
     #[must_use]
     pub fn with_config(config: RetryConfig) -> Self {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: config.base_delay_seconds,
-            max_delay: config.max_delay_seconds,
-            use_jitter: config.use_jitter,
-        };
+        Self { config }
+    }
 
-        Self { config, strategy }
+    /// Calculate the backoff delay for a given attempt number (0-based) using
+    /// exponential backoff with optional jitter, capped at `max_delay_seconds`.
+    fn calculate_delay(&self, attempt: u32) -> Duration {
+        let delay = self
+            .config
+            .base_delay_seconds
+            .saturating_mul(2_u64.saturating_pow(attempt))
+            .min(self.config.max_delay_seconds);
+
+        if self.config.use_jitter {
+            // Add jitter up to 25% of delay.
+            let jitter = (delay as f64 * 0.25 * fastrand::f64()).round() as u64;
+            Duration::from_secs(delay + jitter)
+        } else {
+            Duration::from_secs(delay)
+        }
     }
 
     /// Execute a closure with retry logic
@@ -192,7 +163,7 @@ impl RetryPolicy {
                         }
                     }
 
-                    let delay = self.strategy.calculate_delay(attempt);
+                    let delay = self.calculate_delay(attempt);
                     warn!(
                         "Attempt {} failed, retrying in {:.2}s: {}",
                         attempt + 1,
@@ -329,12 +300,6 @@ impl RetryableHttpClient {
             })
             .await
     }
-
-    /// Get the underlying reqwest client
-    #[must_use]
-    pub fn client(&self) -> &reqwest::Client {
-        &self.client
-    }
 }
 
 impl Default for RetryableHttpClient {
@@ -361,39 +326,32 @@ mod tests {
 
     #[test]
     fn test_exponential_backoff_calculation() {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: 1,
-            max_delay: 10,
+        let policy = RetryPolicy::with_config(RetryConfig {
+            max_attempts: 0,
+            base_delay_seconds: 1,
+            max_delay_seconds: 10,
             use_jitter: false,
-        };
+        });
 
-        assert_eq!(strategy.calculate_delay(0), Duration::from_secs(1));
-        assert_eq!(strategy.calculate_delay(1), Duration::from_secs(2));
-        assert_eq!(strategy.calculate_delay(2), Duration::from_secs(4));
-        assert_eq!(strategy.calculate_delay(3), Duration::from_secs(8));
-        assert_eq!(strategy.calculate_delay(4), Duration::from_secs(10)); // Capped at max_delay
-    }
-
-    #[test]
-    fn test_fixed_delay_calculation() {
-        let strategy = RetryStrategy::FixedDelay { delay: 5 };
-
-        assert_eq!(strategy.calculate_delay(0), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(1), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(2), Duration::from_secs(5));
+        assert_eq!(policy.calculate_delay(0), Duration::from_secs(1));
+        assert_eq!(policy.calculate_delay(1), Duration::from_secs(2));
+        assert_eq!(policy.calculate_delay(2), Duration::from_secs(4));
+        assert_eq!(policy.calculate_delay(3), Duration::from_secs(8));
+        assert_eq!(policy.calculate_delay(4), Duration::from_secs(10)); // Capped at max_delay
     }
 
     #[test]
     fn test_exponential_backoff_with_jitter() {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: 1,
-            max_delay: 10,
+        let policy = RetryPolicy::with_config(RetryConfig {
+            max_attempts: 0,
+            base_delay_seconds: 1,
+            max_delay_seconds: 10,
             use_jitter: true,
-        };
+        });
 
         // Test that jitter produces different results
-        let delay1 = strategy.calculate_delay(2);
-        let delay2 = strategy.calculate_delay(2);
+        let delay1 = policy.calculate_delay(2);
+        let delay2 = policy.calculate_delay(2);
 
         // Base delay should be 4 seconds
         assert!(delay1 >= Duration::from_secs(4));
