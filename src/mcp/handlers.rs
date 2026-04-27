@@ -89,6 +89,50 @@ where
     }
 }
 
+/// Build the journey recommendation list from already-found pickup and dropoff
+/// candidates.
+///
+/// Pulled out of `plan_bike_journey` so the pairing + confidence-score logic
+/// can be unit-tested without an HTTP-backed data client. The current policy
+/// is "pair the closest pickup with the closest dropoff and emit at most one
+/// recommendation"; if either list is empty, no recommendation is produced.
+///
+/// `confidence_score` is `1 - 0.5 * mean(pickup_ratio, dropoff_ratio)`, where
+/// each ratio is `walk_distance / max_walk_distance`. The result is clamped to
+/// `[0.1, 1.0]`. With both stations at the doorstep the score is 1.0; at the
+/// max walk on both ends it is 0.5; the lower clamp guards against pathological
+/// inputs (e.g. `max_walk_distance == 0`).
+fn build_journey_recommendations(
+    pickup_stations: &[StationWithDistance],
+    dropoff_stations: &[StationWithDistance],
+    preferences: &JourneyPreferences,
+) -> Vec<JourneyRecommendation> {
+    let (Some(best_pickup), Some(best_dropoff)) =
+        (pickup_stations.first(), dropoff_stations.first())
+    else {
+        return Vec::new();
+    };
+
+    let max_walk = f64::from(preferences.max_walk_distance);
+    let confidence_score = if max_walk > 0.0 {
+        let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
+        let dropoff_walk_ratio = f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
+        1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5
+    } else {
+        // `max_walk_distance == 0` would divide by zero; clamp will pin it,
+        // but compute deterministically so the formula's output stays defined.
+        0.0
+    };
+
+    vec![JourneyRecommendation {
+        pickup_station: best_pickup.station.clone(),
+        dropoff_station: best_dropoff.station.clone(),
+        straight_line_to_pickup_meters: best_pickup.straight_line_distance_meters,
+        straight_line_from_dropoff_meters: best_dropoff.straight_line_distance_meters,
+        confidence_score: confidence_score.clamp(0.1, 1.0),
+    }]
+}
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -334,29 +378,8 @@ impl McpToolHandler {
             |station| station.is_operational() && station.has_available_docks(1),
         );
 
-        // Generate journey recommendations
-        let mut recommendations = Vec::new();
-
-        if !pickup_stations.is_empty() && !dropoff_stations.is_empty() {
-            // Create recommendations by pairing closest pickup with closest dropoff
-            let best_pickup = &pickup_stations[0];
-            let best_dropoff = &dropoff_stations[0];
-
-            // Calculate confidence score based on walking distances
-            let max_walk = f64::from(preferences.max_walk_distance);
-            let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
-            let dropoff_walk_ratio =
-                f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
-            let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
-
-            recommendations.push(JourneyRecommendation {
-                pickup_station: best_pickup.station.clone(),
-                dropoff_station: best_dropoff.station.clone(),
-                straight_line_to_pickup_meters: best_pickup.straight_line_distance_meters,
-                straight_line_from_dropoff_meters: best_dropoff.straight_line_distance_meters,
-                confidence_score: confidence_score.clamp(0.1, 1.0),
-            });
-        }
+        let recommendations =
+            build_journey_recommendations(&pickup_stations, &dropoff_stations, &preferences);
 
         Ok(PlanBikeJourneyOutput {
             journey: BikeJourney {
@@ -720,5 +743,141 @@ mod tests {
         // availability for rental).
         assert_eq!(stats.operational_stations, 1);
         assert_eq!(stats.available_bikes.total, 7);
+    }
+
+    // --- build_journey_recommendations ---
+
+    /// Wrap a station with a known straight-line distance for use in
+    /// recommendation tests. Avoids re-running the Haversine formula in test
+    /// arrange code so the assertions are about pairing/scoring, not geometry.
+    fn swd(station: VelibStation, distance: u32) -> StationWithDistance {
+        StationWithDistance {
+            station,
+            straight_line_distance_meters: distance,
+        }
+    }
+
+    fn prefs(max_walk: u32) -> JourneyPreferences {
+        JourneyPreferences {
+            bike_type: BikeTypeFilter::AnyType,
+            max_walk_distance: max_walk,
+        }
+    }
+
+    #[test]
+    fn build_journey_recs_empty_pickup_yields_no_recommendation() {
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 100)];
+        let recs = build_journey_recommendations(&[], &dropoffs, &prefs(500));
+        assert!(recs.is_empty());
+    }
+
+    #[test]
+    fn build_journey_recs_empty_dropoff_yields_no_recommendation() {
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 100)];
+        let recs = build_journey_recommendations(&pickups, &[], &prefs(500));
+        assert!(recs.is_empty());
+    }
+
+    #[test]
+    fn build_journey_recs_pairs_first_pickup_with_first_dropoff() {
+        // Provide several candidates each side; only the head of each list
+        // should be paired (current policy: closest x closest, single rec).
+        let pickups = vec![
+            swd(make_station("p_close", 48.85, 2.35, 2, 0), 50),
+            swd(make_station("p_far", 48.85, 2.35, 2, 0), 400),
+        ];
+        let dropoffs = vec![
+            swd(make_station("d_close", 48.86, 2.36, 0, 0), 75),
+            swd(make_station("d_far", 48.86, 2.36, 0, 0), 450),
+        ];
+
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(500));
+
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].pickup_station.reference.station_code, "p_close");
+        assert_eq!(recs[0].dropoff_station.reference.station_code, "d_close");
+        assert_eq!(recs[0].straight_line_to_pickup_meters, 50);
+        assert_eq!(recs[0].straight_line_from_dropoff_meters, 75);
+    }
+
+    #[test]
+    fn build_journey_recs_doorstep_score_is_one() {
+        // pickup_ratio = dropoff_ratio = 0 -> 1 - 0.5 * 0 = 1.0
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 0)];
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 0)];
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(500));
+        assert_eq!(recs.len(), 1);
+        assert!(
+            (recs[0].confidence_score - 1.0).abs() < 1e-9,
+            "score = {}",
+            recs[0].confidence_score
+        );
+    }
+
+    #[test]
+    fn build_journey_recs_max_walk_score_is_half() {
+        // Both walks at exactly the max distance:
+        // mean ratio = 1.0; score = 1 - 0.5 * 1 = 0.5
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 500)];
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 500)];
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(500));
+        assert_eq!(recs.len(), 1);
+        assert!(
+            (recs[0].confidence_score - 0.5).abs() < 1e-9,
+            "score = {}",
+            recs[0].confidence_score
+        );
+    }
+
+    #[test]
+    fn build_journey_recs_score_is_strictly_within_clamp_window() {
+        // For any ratio in [0, 1], the formula yields a score in [0.5, 1.0],
+        // so the upper clamp is the binding bound only at the doorstep, and
+        // the lower clamp (0.1) only ever bites if ratios > 1 (e.g.
+        // distance > max_walk by upstream lookup). Here we exercise a typical
+        // mid-range case to confirm monotonic behaviour.
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 100)];
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 300)];
+        // pickup_ratio = 0.2, dropoff_ratio = 0.6, mean = 0.4 -> score = 0.8.
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(500));
+        assert_eq!(recs.len(), 1);
+        assert!(
+            (recs[0].confidence_score - 0.8).abs() < 1e-9,
+            "score = {}",
+            recs[0].confidence_score
+        );
+    }
+
+    #[test]
+    fn build_journey_recs_score_clamped_at_lower_bound() {
+        // Distance > max_walk should never happen via `find_stations_within_radius`,
+        // but the public helper must remain numerically safe if callers
+        // construct it directly. With pickup=2000 and dropoff=2000 and
+        // max_walk=500, ratio mean = 4.0; raw score = 1 - 2.0 = -1.0; clamp to 0.1.
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 2000)];
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 2000)];
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(500));
+        assert_eq!(recs.len(), 1);
+        assert!(
+            (recs[0].confidence_score - 0.1).abs() < 1e-9,
+            "score = {}",
+            recs[0].confidence_score
+        );
+    }
+
+    #[test]
+    fn build_journey_recs_zero_max_walk_does_not_panic() {
+        // Guard the divide-by-zero path: even with a degenerate
+        // `max_walk_distance = 0` and any candidate distances, the function
+        // must produce a defined, clamped score (and not panic on f64 div).
+        let pickups = vec![swd(make_station("p", 48.85, 2.35, 2, 0), 0)];
+        let dropoffs = vec![swd(make_station("d", 48.86, 2.36, 0, 0), 0)];
+        let recs = build_journey_recommendations(&pickups, &dropoffs, &prefs(0));
+        assert_eq!(recs.len(), 1);
+        let score = recs[0].confidence_score;
+        assert!(
+            (0.1..=1.0).contains(&score),
+            "score must be clamped to [0.1, 1.0], got {score}"
+        );
     }
 }
