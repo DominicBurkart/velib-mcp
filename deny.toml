@@ -1,33 +1,135 @@
+# Configuration for cargo-deny license and dependency compliance
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# all-features = false is intentional: the license scan runs against the
+# default feature set only. Feature-gated dependency graphs are exercised
+# separately by the `feature-testing` CI job (cargo hack --feature-powerset),
+# which would surface a new dep introduced by a non-default feature. Flip to
+# true here if a license slipping in via an optional feature becomes a concern.
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# Advisory database configuration
 [advisories]
 ignore = [
-  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained; transitive via reqwest 0.11. No safe upgrade without bumping reqwest to 0.12 (tracked separately)." },
+    # RUSTSEC-2026-0097 (rand thread_rng predictability): rand 0.8.5 is a
+    # transitive dep via tungstenite -> tokio-tungstenite -> axum. Verified
+    # no direct security-sensitive use in this crate via
+    #   rg -n 'thread_rng|rand::' src/
+    # which returns only src/data/retry.rs:117 using fastrand::f64() for
+    # retry-jitter (non-security). Re-run that grep on each audit to
+    # confirm no production path starts using rand::thread_rng() for
+    # tokens/IDs/nonces/crypto material.
+    { id = "RUSTSEC-2026-0097", reason = "transitive rand 0.8.5 via axum; src/ uses fastrand only, no thread_rng for security-sensitive values (re-verify via `rg -n 'thread_rng|rand::' src/`)" },
+    # RUSTSEC-2025-0134 (rustls-pemfile unmaintained): dev-only transitive
+    # dep via reqwest's test-support path; not compiled into production.
+    { id = "RUSTSEC-2025-0134", reason = "dev-only transitive dep via reqwest; no production exposure" },
 ]
 
+# License compliance configuration
 [licenses]
+# All allowed licenses - verified against actual dependency tree.
+# Project is dual-licensed MIT OR Apache-2.0.
 allow = [
-  "MIT",
-  "Apache-2.0",
-  "Apache-2.0 WITH LLVM-exception",
-  "ISC",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "Unicode-DFS-2016",
-  "Unicode-3.0",
-  "CC0-1.0",
-  "Zlib",
-  "OpenSSL",
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "OpenSSL",
 ]
-private = { ignore = true }
+confidence-threshold = 0.8
+exceptions = []
 
+[licenses.private]
+ignore = false
+registries = []
+
+# ring uses a non-SPDX license expression; clarify its effective license.
 [[licenses.clarify]]
 name = "ring"
 expression = "MIT AND ISC AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
+# Crate ban configuration
 [bans]
-multiple-versions = "warn"
+# Deny multiple versions to keep the dependency tree lean.
+# Skip entries below are for duplicate versions already present in the tree
+# at the time this config was introduced; remove them as deps are updated.
+multiple-versions = "deny"
+# Deny wildcard version requirements to ensure reproducible builds.
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = [
+    # base64 0.21 pulled in by older hyper/reqwest stack alongside 0.22
+    { name = "base64", version = "=0.21.7" },
+    # bitflags 1.x pulled in by older windows-sys/hyper stack
+    { name = "bitflags", version = "=1.3.2" },
+    # getrandom 0.2 pulled in by older rand/wasi stack
+    { name = "getrandom", version = "=0.2.16" },
+    # http 0.2 pulled in by hyper 0.14 / older middleware
+    { name = "http", version = "=0.2.12" },
+    # http-body 0.4 pulled in by hyper 0.14
+    { name = "http-body", version = "=0.4.6" },
+    # hyper 0.14 still required by reqwest until full hyper-1 migration
+    { name = "hyper", version = "=0.14.32" },
+    # sync_wrapper 0.1 pulled in by hyper 0.14 stack
+    { name = "sync_wrapper", version = "=0.1.2" },
+    # wasi 0.11 pulled in by getrandom 0.2
+    { name = "wasi", version = "=0.11.1+wasi-snapshot-preview1" },
+    # wasi 0.14 pulled in by getrandom 0.3
+    { name = "wasi", version = "=0.14.2+wasi-0.2.4" },
+    # windows-sys older versions pulled in by transitive deps
+    { name = "windows-sys", version = "=0.48.0" },
+    { name = "windows-sys", version = "=0.52.0" },
+    # windows-sys 0.59 pulled in by errno, mio, nu-ansi-term, rustix, schannel, tempfile
+    { name = "windows-sys", version = "=0.59.0" },
+    # windows-targets 0.48 pulled in by older windows-sys
+    { name = "windows-targets", version = "=0.48.5" },
+    # windows-targets 0.52 pulled in by backtrace, parking_lot_core, windows-sys 0.52/0.59
+    { name = "windows-targets", version = "=0.52.6" },
+    { name = "windows_aarch64_gnullvm", version = "=0.48.5" },
+    { name = "windows_aarch64_gnullvm", version = "=0.52.6" },
+    { name = "windows_aarch64_msvc", version = "=0.48.5" },
+    { name = "windows_aarch64_msvc", version = "=0.52.6" },
+    { name = "windows_i686_gnu", version = "=0.48.5" },
+    { name = "windows_i686_gnu", version = "=0.52.6" },
+    { name = "windows_i686_msvc", version = "=0.48.5" },
+    { name = "windows_i686_msvc", version = "=0.52.6" },
+    { name = "windows_x86_64_gnu", version = "=0.48.5" },
+    { name = "windows_x86_64_gnu", version = "=0.52.6" },
+    { name = "windows_x86_64_gnullvm", version = "=0.48.5" },
+    { name = "windows_x86_64_gnullvm", version = "=0.52.6" },
+    { name = "windows_x86_64_msvc", version = "=0.48.5" },
+    { name = "windows_x86_64_msvc", version = "=0.52.6" },
+]
+skip-tree = []
 
+# Source provenance configuration
+# Deny crates from unknown registries or git sources to protect supply chain.
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-org = { github = ["dominicburkart"] }
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []
