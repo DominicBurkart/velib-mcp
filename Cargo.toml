@@ -8,6 +8,11 @@ description = "MCP server for Velib Paris bike sharing data"
 keywords = ["mcp", "velib", "paris", "bike-sharing", "transport"]
 categories = ["api-bindings", "web-programming"]
 
+[features]
+# Enables test-helper methods (cache seeding) that must not ship in production builds.
+# Activated automatically for integration tests via [dev-dependencies].
+test-utils = []
+
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +32,7 @@ unicode-normalization = "0.1.25"
 cargo-husky = "1"
 tower = { version = "0.5", features = ["util"] }
 reqwest = { version = "0.11", features = ["json"] }
+velib-mcp = { path = ".", features = ["test-utils"] }
 
 [profile.release]
 lto = true

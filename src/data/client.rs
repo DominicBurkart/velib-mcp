@@ -328,7 +328,7 @@ impl VelibDataClient {
 
     /// Seed the reference-station cache with pre-built data, bypassing the network.
     /// Only available in test builds so it cannot be called in production.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn seed_for_testing(&self, stations: Vec<StationReference>) {
         self.reference_cache
             .insert("all_reference_stations".to_string(), stations)
@@ -337,11 +337,8 @@ impl VelibDataClient {
 
     /// Seed the real-time cache with pre-built data, bypassing the network.
     /// Only available in test builds so it cannot be called in production.
-    #[cfg(test)]
-    pub async fn seed_realtime_for_testing(
-        &self,
-        status_map: HashMap<String, RealTimeStatus>,
-    ) {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn seed_realtime_for_testing(&self, status_map: HashMap<String, RealTimeStatus>) {
         self.realtime_cache
             .insert("all_realtime_status".to_string(), status_map)
             .await;

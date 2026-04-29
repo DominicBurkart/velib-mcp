@@ -6,7 +6,7 @@
 //!
 //!   1. `InMemoryCache` expiry — insert with a 1 ms TTL, sleep past it, assert `get` → `None`.
 //!   2. `find_nearby_stations` distance filter — stations beyond the requested radius are excluded.
-//!   3. `search_stations_by_name` NFC normalisation — `"chatelet"` matches `"Châtelet"`.
+//!   3. `search_stations_by_name` NFC normalisation — NFD `"cha\u{0302}telet"` matches NFC `"Châtelet"`.
 //!   4. Coordinate validation — London coordinates are rejected with `OutsideServiceArea`.
 
 use chrono::{Duration as ChronoDuration, Utc};
@@ -16,10 +16,8 @@ use tokio::time::sleep;
 
 use velib_mcp::{
     data::{cache::InMemoryCache, VelibDataClient},
+    mcp::types::{FindNearbyStationsInput, SearchStationsByNameInput},
     mcp::McpToolHandler,
-    mcp::types::{
-        FindNearbyStationsInput, SearchStationsByNameInput,
-    },
     types::{
         BikeAvailability, Coordinates, DataFreshness, RealTimeStatus, ServiceCapabilities,
         StationReference, StationStatus, VelibStation,
@@ -59,10 +57,7 @@ fn make_open_station(reference: StationReference) -> VelibStation {
 /// Seed a `VelibDataClient` with the supplied stations (no real-time data)
 /// so that `get_all_stations` returns them without a network call.
 async fn client_with_stations(stations: Vec<VelibStation>) -> VelibDataClient {
-    let references: Vec<StationReference> = stations
-        .iter()
-        .map(|s| s.reference.clone())
-        .collect();
+    let references: Vec<StationReference> = stations.iter().map(|s| s.reference.clone()).collect();
 
     // Build a matching real-time map from the stations that carry one.
     let mut rt_map: HashMap<String, RealTimeStatus> = HashMap::new();
@@ -85,8 +80,7 @@ async fn client_with_stations(stations: Vec<VelibStation>) -> VelibDataClient {
 #[tokio::test]
 async fn test_cache_entry_expires_after_ttl() {
     // Use a default TTL of 10 minutes; we will override per-entry.
-    let cache: InMemoryCache<String, String> =
-        InMemoryCache::new(ChronoDuration::minutes(10));
+    let cache: InMemoryCache<String, String> = InMemoryCache::new(ChronoDuration::minutes(10));
 
     let key = "expiry_key".to_string();
     let value = "hello".to_string();
@@ -172,11 +166,7 @@ async fn test_search_stations_by_name_nfc_normalization() {
     // Station whose name contains a precomposed accented character (U+00E2 for â, etc.).
     // "Châtelet" uses the precomposed form.
     let chatelet_coords = Coordinates::new(48.8600, 2.3470);
-    let chatelet = make_open_station(make_reference(
-        "CHAT001",
-        "Châtelet",
-        chatelet_coords,
-    ));
+    let chatelet = make_open_station(make_reference("CHAT001", "Châtelet", chatelet_coords));
 
     // Unrelated station that should NOT appear in results.
     let other_coords = Coordinates::new(48.8566, 2.3522);
@@ -185,9 +175,12 @@ async fn test_search_stations_by_name_nfc_normalization() {
     let client = client_with_stations(vec![chatelet, other]).await;
     let handler = McpToolHandler::with_data_client(client);
 
-    // Query uses plain ASCII — NFC normalization should still match.
+    // Query uses the NFD decomposed form of "châtelet" (a + U+0302 combining circumflex).
+    // After NFC normalisation both the query and the station name become "châtelet", so
+    // `contains` returns true.  This verifies that the handler normalises before comparing.
+    let query_nfd = "cha\u{0302}telet"; // NFD: 'a' + combining circumflex
     let input = SearchStationsByNameInput {
-        query: "chatelet".to_string(),
+        query: query_nfd.to_string(),
         limit: 10,
         fuzzy: true,
     };
@@ -205,7 +198,7 @@ async fn test_search_stations_by_name_nfc_normalization() {
 
     assert!(
         codes.contains(&"CHAT001"),
-        "NFC-normalised search for 'chatelet' should match 'Châtelet'; got: {codes:?}"
+        "NFC-normalised search for NFD 'châtelet' should match NFC 'Châtelet'; got: {codes:?}"
     );
     assert!(
         !codes.contains(&"OTHER001"),
@@ -246,7 +239,10 @@ async fn test_find_nearby_stations_rejects_london_coordinates() {
     // is_valid_paris_metro bounding-box check before reaching the
     // service-area distance check).
     match result.unwrap_err() {
-        Error::InvalidCoordinates { latitude, longitude } => {
+        Error::InvalidCoordinates {
+            latitude,
+            longitude,
+        } => {
             assert!(
                 (latitude - london_lat).abs() < 1e-9,
                 "error latitude should match the input"
