@@ -14,6 +14,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use super::documentation::{build_api_description, DOCS_RESOURCE_URI};
 use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::{Error, Result};
@@ -364,9 +365,16 @@ impl McpServer {
                         "name": "Service Health Status",
                         "description": "System health and data source status information",
                         "mimeType": "application/json"
+                    },
+                    {
+                        "uri": DOCS_RESOURCE_URI,
+                        "name": "Velib MCP API Description",
+                        "description": "Self-documentation: schemas, units, cache TTLs, enums, error codes",
+                        "mimeType": "application/json"
                     }
                 ]
             })),
+            "docs/describe" => Ok(build_api_description()),
             _ => Err(Error::McpProtocol(format!(
                 "Unknown method: {}",
                 request.method
@@ -454,6 +462,7 @@ async fn handle_resource(
             Ok(response) => Json(response).into_response(),
             Err(e) => resource_error(e, "Failed to fetch health status"),
         },
+        uri if uri == DOCS_RESOURCE_URI => Json(build_api_description()).into_response(),
         _ => (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "Resource not found"})),
