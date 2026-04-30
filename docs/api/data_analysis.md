@@ -11,7 +11,7 @@ Ce document analyse les deux jeux de données Velib disponibles via l'API Open D
 
 ### Endpoint API
 ```
-https://opendata.paris.fr/api/records/1.0/search/?dataset=velib-disponibilite-en-temps-reel
+https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records
 ```
 
 ### Caractéristiques Techniques
@@ -69,7 +69,7 @@ https://opendata.paris.fr/api/records/1.0/search/?dataset=velib-disponibilite-en
 
 ### Endpoint API
 ```
-https://opendata.paris.fr/api/records/1.0/search/?dataset=velib-emplacement-des-stations
+https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-emplacement-des-stations/records
 ```
 
 ### Caractéristiques Techniques
