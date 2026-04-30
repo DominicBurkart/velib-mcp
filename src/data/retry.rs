@@ -240,23 +240,6 @@ impl Default for RetryPolicy {
     }
 }
 
-/// Helper function to extract retry-after header from reqwest error
-pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
-    response
-        .headers()
-        .get("retry-after")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-}
-
-/// Helper function to create rate limited error from HTTP response
-pub fn create_rate_limited_error(response: &reqwest::Response) -> Error {
-    let retry_after = extract_retry_after_from_response(response);
-    Error::RateLimited {
-        retry_after_seconds: retry_after,
-    }
-}
-
 /// Wrapper for making HTTP requests with retry logic
 #[derive(Debug)]
 pub struct RetryableHttpClient {
@@ -286,13 +269,20 @@ impl RetryableHttpClient {
         debug!("Received response: {} {}", response.status(), url);
 
         if response.status() == 429 {
-            let retry_after = extract_retry_after_from_response(&response);
+            let retry_after_seconds = response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
             warn!(
                 "Rate limited (429) for {}{}",
                 url,
-                retry_after.map_or_else(String::new, |seconds| format!(", retry after {seconds}s"))
+                retry_after_seconds
+                    .map_or_else(String::new, |seconds| format!(", retry after {seconds}s"))
             );
-            return Err(create_rate_limited_error(&response));
+            return Err(Error::RateLimited {
+                retry_after_seconds,
+            });
         }
 
         if !response.status().is_success() {
