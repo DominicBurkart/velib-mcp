@@ -103,7 +103,7 @@ impl VelibDataClient {
             }
 
             for record in records {
-                if let Ok(station) = self.parse_reference_station(record) {
+                if let Ok(station) = parse_reference_station(record) {
                     all_stations.push(station);
                 }
             }
@@ -161,7 +161,7 @@ impl VelibDataClient {
             }
 
             for record in records {
-                if let Ok((station_code, status)) = self.parse_realtime_status(record) {
+                if let Ok((station_code, status)) = parse_realtime_status(record) {
                     all_status.insert(station_code, status);
                 }
             }
@@ -221,98 +221,6 @@ impl VelibDataClient {
             .find(|station| station.reference.station_code == station_code))
     }
 
-    /// Parse reference station data from API response
-    fn parse_reference_station(&self, record: &Value) -> Result<StationReference> {
-        let station_code = record["stationcode"]
-            .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
-            .to_string();
-
-        let name = record["name"]
-            .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station name")))?
-            .to_string();
-
-        let capacity = record["capacity"]
-            .as_u64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
-            as u16;
-
-        // Parse coordinates from coordonnees_geo
-        let geo_point = record["coordonnees_geo"]
-            .as_object()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
-
-        let latitude = geo_point["lat"]
-            .as_f64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing latitude")))?;
-
-        let longitude = geo_point["lon"]
-            .as_f64()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
-
-        let coordinates = crate::types::Coordinates::new(latitude, longitude);
-
-        // Parse service capabilities
-        let capabilities = ServiceCapabilities {
-            accepts_credit_card: false,  // Not available in current API
-            has_charging_station: false, // Not available in current API
-            is_virtual_station: false,   // Not available in current API
-        };
-
-        Ok(StationReference {
-            station_code,
-            name,
-            coordinates,
-            capacity,
-            capabilities,
-        })
-    }
-
-    /// Parse real-time status data from API response
-    fn parse_realtime_status(&self, record: &Value) -> Result<(String, RealTimeStatus)> {
-        let station_code = record["stationcode"]
-            .as_str()
-            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
-            .to_string();
-
-        let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
-
-        let electric_bikes = record["ebike"].as_u64().unwrap_or(0) as u16;
-
-        let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
-
-        // Parse status
-        let status_str = record["is_installed"].as_str().unwrap_or("NON");
-
-        let status = match status_str {
-            "OUI" => {
-                let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
-                let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
-
-                if is_renting && is_returning {
-                    StationStatus::Open
-                } else {
-                    StationStatus::Maintenance
-                }
-            }
-            _ => StationStatus::Closed,
-        };
-
-        // Parse last update time
-        let default_time = Utc::now().to_rfc3339();
-        let last_update_str = record["duedate"].as_str().unwrap_or(&default_time);
-
-        let last_update = DateTime::parse_from_rfc3339(last_update_str)
-            .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-        let bikes = BikeAvailability::new(mechanical_bikes, electric_bikes);
-
-        let real_time_status = RealTimeStatus::new(bikes, available_docks, status, last_update);
-
-        Ok((station_code, real_time_status))
-    }
-
     /// Clean up expired cache entries
     pub async fn cleanup_cache(&self) {
         self.reference_cache.cleanup_expired().await;
@@ -342,5 +250,195 @@ impl VelibDataClient {
         self.realtime_cache
             .insert("all_realtime_status".to_string(), status_map)
             .await;
+    }
+}
+
+/// Parse one reference station record from the Paris Open Data API.
+///
+/// Extracted as a free function (not a method) because it has no dependency
+/// on `VelibDataClient` state. This keeps the parser cheaply testable against
+/// fixture JSON values.
+pub(crate) fn parse_reference_station(record: &Value) -> Result<StationReference> {
+    let station_code = record["stationcode"]
+        .as_str()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
+        .to_string();
+
+    let name = record["name"]
+        .as_str()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station name")))?
+        .to_string();
+
+    let capacity = record["capacity"]
+        .as_u64()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing capacity")))?
+        as u16;
+
+    let geo_point = record["coordonnees_geo"]
+        .as_object()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing geo coordinates")))?;
+
+    let latitude = geo_point["lat"]
+        .as_f64()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing latitude")))?;
+
+    let longitude = geo_point["lon"]
+        .as_f64()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing longitude")))?;
+
+    Ok(StationReference {
+        station_code,
+        name,
+        coordinates: crate::types::Coordinates::new(latitude, longitude),
+        capacity,
+        // The Paris Open Data stations dataset does not expose these fields.
+        capabilities: ServiceCapabilities::default(),
+    })
+}
+
+/// Parse one real-time status record from the Paris Open Data API.
+///
+/// Returns the station code alongside the parsed status so callers can index
+/// the result by code. Missing bike/dock counts are coerced to 0 rather than
+/// failing the row -- this matches how the upstream API sometimes omits fields
+/// for stations temporarily out of service.
+pub(crate) fn parse_realtime_status(record: &Value) -> Result<(String, RealTimeStatus)> {
+    let station_code = record["stationcode"]
+        .as_str()
+        .ok_or_else(|| Error::Internal(anyhow::anyhow!("Missing station code")))?
+        .to_string();
+
+    let mechanical_bikes = record["mechanical"].as_u64().unwrap_or(0) as u16;
+    let electric_bikes = record["ebike"].as_u64().unwrap_or(0) as u16;
+    let available_docks = record["numdocksavailable"].as_u64().unwrap_or(0) as u16;
+
+    let status = match record["is_installed"].as_str().unwrap_or("NON") {
+        "OUI" => {
+            let is_renting = record["is_renting"].as_str().unwrap_or("NON") == "OUI";
+            let is_returning = record["is_returning"].as_str().unwrap_or("NON") == "OUI";
+            if is_renting && is_returning {
+                StationStatus::Open
+            } else {
+                StationStatus::Maintenance
+            }
+        }
+        _ => StationStatus::Closed,
+    };
+
+    let last_update = record["duedate"]
+        .as_str()
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
+
+    Ok((
+        station_code,
+        RealTimeStatus::new(
+            BikeAvailability::new(mechanical_bikes, electric_bikes),
+            available_docks,
+            status,
+            last_update,
+        ),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fixture_reference() -> Value {
+        json!({
+            "stationcode": "16107",
+            "name": "Benjamin Godard - Victor Hugo",
+            "capacity": 35,
+            "coordonnees_geo": { "lat": 48.8656, "lon": 2.2779 }
+        })
+    }
+
+    #[test]
+    fn parse_reference_station_happy_path() {
+        let station = parse_reference_station(&fixture_reference()).expect("parses");
+        assert_eq!(station.station_code, "16107");
+        assert_eq!(station.name, "Benjamin Godard - Victor Hugo");
+        assert_eq!(station.capacity, 35);
+        assert!((station.coordinates.latitude - 48.8656).abs() < 1e-9);
+        assert!((station.coordinates.longitude - 2.2779).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_reference_station_rejects_missing_fields() {
+        let cases = [
+            json!({"name": "x", "capacity": 10, "coordonnees_geo": {"lat": 48.85, "lon": 2.35}}),
+            json!({"stationcode": "1", "capacity": 10, "coordonnees_geo": {"lat": 48.85, "lon": 2.35}}),
+            json!({"stationcode": "1", "name": "x", "coordonnees_geo": {"lat": 48.85, "lon": 2.35}}),
+            json!({"stationcode": "1", "name": "x", "capacity": 10}),
+        ];
+        for bad in cases {
+            assert!(parse_reference_station(&bad).is_err(), "bad={bad}");
+        }
+    }
+
+    #[test]
+    fn parse_realtime_status_maps_renting_returning_to_open() {
+        let record = json!({
+            "stationcode": "16107",
+            "mechanical": 5,
+            "ebike": 3,
+            "numdocksavailable": 12,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2026-04-23T10:00:00+00:00"
+        });
+        let (code, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(code, "16107");
+        assert_eq!(status.bikes.mechanical, 5);
+        assert_eq!(status.bikes.electric, 3);
+        assert_eq!(status.available_docks, 12);
+        assert_eq!(status.status, StationStatus::Open);
+    }
+
+    #[test]
+    fn parse_realtime_status_installed_but_not_renting_is_maintenance() {
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "NON",
+            "is_returning": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.status, StationStatus::Maintenance);
+    }
+
+    #[test]
+    fn parse_realtime_status_uninstalled_is_closed() {
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "NON",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.status, StationStatus::Closed);
+    }
+
+    #[test]
+    fn parse_realtime_status_missing_counts_default_to_zero() {
+        // Matches upstream behavior: stations temporarily missing mechanical/ebike/
+        // numdocksavailable fields should not fail the whole batch.
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.bikes.mechanical, 0);
+        assert_eq!(status.bikes.electric, 0);
+        assert_eq!(status.available_docks, 0);
+    }
+
+    #[test]
+    fn parse_realtime_status_rejects_missing_station_code() {
+        let record = json!({"is_installed": "OUI"});
+        assert!(parse_realtime_status(&record).is_err());
     }
 }

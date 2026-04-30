@@ -9,8 +9,6 @@ keywords = ["mcp", "velib", "paris", "bike-sharing", "transport"]
 categories = ["api-bindings", "web-programming"]
 
 [features]
-# Enables test-helper methods (cache seeding) that must not ship in production builds.
-# Activated automatically for integration tests via [dev-dependencies].
 test-utils = []
 
 [dependencies]
@@ -32,7 +30,6 @@ uuid = { version = "1.0", features = ["v4"] }
 cargo-husky = "1"
 reqwest = { version = "0.11", features = ["json"] }
 tower = { version = "0.5", features = ["util"] }
-velib-mcp = { path = ".", features = ["test-utils"] }
 
 [profile.release]
 lto = true
