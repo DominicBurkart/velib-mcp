@@ -97,6 +97,7 @@ pub fn build_api_description() -> Value {
             "confidence_score": {"type": "ratio in [0.0, 1.0]"}
         },
         "enums": enums_documentation(),
+        "types": types_documentation(),
         "tools": tools_documentation(),
         "resources": resources_documentation(),
         "error_codes": error_codes_documentation(),
@@ -308,6 +309,164 @@ fn tools_documentation() -> Value {
     ])
 }
 
+fn types_documentation() -> Value {
+    // Concrete schema definitions for every `$ref: "#/types/..."` used in
+    // `tools[*].input_schema` / `output_schema`. Keep these in sync with
+    // the Rust definitions in `src/types.rs` and `src/mcp/types.rs`.
+    json!({
+        "Coordinates": {
+            "type": "object",
+            "description": "Geographic point in WGS84 decimal degrees.",
+            "properties": {
+                "latitude":  {"type": "number", "unit": "decimal degrees", "minimum": -90.0, "maximum": 90.0},
+                "longitude": {"type": "number", "unit": "decimal degrees", "minimum": -180.0, "maximum": 180.0}
+            },
+            "required": ["latitude", "longitude"]
+        },
+        "ServiceCapabilities": {
+            "type": "object",
+            "description": "Static capability flags for a station.",
+            "properties": {
+                "accepts_credit_card":   {"type": "boolean"},
+                "has_charging_station":  {"type": "boolean"},
+                "is_virtual_station":    {"type": "boolean"}
+            },
+            "required": ["accepts_credit_card", "has_charging_station", "is_virtual_station"]
+        },
+        "BikeAvailability": {
+            "type": "object",
+            "description": "Bike counts broken down by propulsion type.",
+            "properties": {
+                "mechanical": {"type": "integer", "unit": "count of bikes", "minimum": 0},
+                "electric":   {"type": "integer", "unit": "count of bikes", "minimum": 0}
+            },
+            "required": ["mechanical", "electric"]
+        },
+        "StationReference": {
+            "type": "object",
+            "description": "Static metadata for a Velib station.",
+            "properties": {
+                "station_code": {"type": "string"},
+                "name":         {"type": "string"},
+                "coordinates":  {"$ref": "#/types/Coordinates"},
+                "capacity":     {"type": "integer", "unit": "count of docks", "minimum": 1},
+                "capabilities": {"$ref": "#/types/ServiceCapabilities"}
+            },
+            "required": ["station_code", "name", "coordinates", "capacity", "capabilities"]
+        },
+        "RealTimeStatus": {
+            "type": "object",
+            "description": "Real-time availability snapshot for a station.",
+            "properties": {
+                "bikes":           {"$ref": "#/types/BikeAvailability"},
+                "available_docks": {"type": "integer", "unit": "count of docks", "minimum": 0},
+                "status":          {"$ref": "#/enums/StationStatus"},
+                "last_update":     {"type": "string", "format": "date-time"},
+                "data_freshness":  {"$ref": "#/enums/DataFreshness"}
+            },
+            "required": ["bikes", "available_docks", "status", "last_update", "data_freshness"]
+        },
+        "VelibStation": {
+            "type": "object",
+            "description": "Velib station combining static reference data with optional real-time status.",
+            "properties": {
+                "reference": {"$ref": "#/types/StationReference"},
+                "real_time": {"$ref": "#/types/RealTimeStatus", "nullable": true}
+            },
+            "required": ["reference"]
+        },
+        "StationWithDistance": {
+            "type": "object",
+            "description": "A `VelibStation` annotated with its straight-line distance from a query point. \
+                The station fields are flattened into this object alongside `straight_line_distance_meters`.",
+            "properties": {
+                "reference":                       {"$ref": "#/types/StationReference"},
+                "real_time":                       {"$ref": "#/types/RealTimeStatus", "nullable": true},
+                "straight_line_distance_meters":   {"type": "integer", "unit": "meters", "minimum": 0}
+            },
+            "required": ["reference", "straight_line_distance_meters"]
+        },
+        "SearchMetadata": {
+            "type": "object",
+            "description": "Metadata returned for radius-based station searches.",
+            "properties": {
+                "query_point":     {"$ref": "#/types/Coordinates"},
+                "radius_meters":   {"type": "integer", "unit": "meters", "minimum": 0},
+                "total_found":     {"type": "integer", "minimum": 0},
+                "search_time_ms":  {"type": "integer", "unit": "milliseconds", "minimum": 0}
+            },
+            "required": ["query_point", "radius_meters", "total_found", "search_time_ms"]
+        },
+        "TextSearchMetadata": {
+            "type": "object",
+            "description": "Metadata returned for name-based station searches.",
+            "properties": {
+                "query":           {"type": "string"},
+                "total_found":     {"type": "integer", "minimum": 0},
+                "fuzzy_enabled":   {"type": "boolean"},
+                "search_time_ms":  {"type": "integer", "unit": "milliseconds", "minimum": 0}
+            },
+            "required": ["query", "total_found", "fuzzy_enabled", "search_time_ms"]
+        },
+        "GeographicBounds": {
+            "type": "object",
+            "description": "Axis-aligned geographic bounding box in decimal degrees.",
+            "properties": {
+                "north": {"type": "number", "unit": "decimal degrees"},
+                "south": {"type": "number", "unit": "decimal degrees"},
+                "east":  {"type": "number", "unit": "decimal degrees"},
+                "west":  {"type": "number", "unit": "decimal degrees"}
+            },
+            "required": ["north", "south", "east", "west"]
+        },
+        "AvailableBikesStats": {
+            "type": "object",
+            "description": "Aggregated bike counts across an area.",
+            "properties": {
+                "mechanical": {"type": "integer", "unit": "count of bikes", "minimum": 0},
+                "electric":   {"type": "integer", "unit": "count of bikes", "minimum": 0},
+                "total":      {"type": "integer", "unit": "count of bikes", "minimum": 0}
+            },
+            "required": ["mechanical", "electric", "total"]
+        },
+        "AreaStatistics": {
+            "type": "object",
+            "description": "Aggregated statistics across the stations within a bounding box.",
+            "properties": {
+                "total_stations":        {"type": "integer", "minimum": 0},
+                "operational_stations":  {"type": "integer", "minimum": 0},
+                "total_capacity":        {"type": "integer", "unit": "count of docks", "minimum": 0},
+                "available_bikes":       {"$ref": "#/types/AvailableBikesStats"},
+                "available_docks":       {"type": "integer", "unit": "count of docks", "minimum": 0},
+                "occupancy_rate":        {"type": "number", "unit": "ratio in [0.0, 1.0]", "minimum": 0.0, "maximum": 1.0}
+            },
+            "required": ["total_stations", "operational_stations", "total_capacity", "available_bikes", "available_docks", "occupancy_rate"]
+        },
+        "JourneyRecommendation": {
+            "type": "object",
+            "description": "A pickup/dropoff station pair with walking distances and a confidence score.",
+            "properties": {
+                "pickup_station":                       {"$ref": "#/types/VelibStation"},
+                "dropoff_station":                      {"$ref": "#/types/VelibStation"},
+                "straight_line_to_pickup_meters":       {"type": "integer", "unit": "meters", "minimum": 0},
+                "straight_line_from_dropoff_meters":    {"type": "integer", "unit": "meters", "minimum": 0},
+                "confidence_score":                     {"type": "number", "unit": "ratio in [0.0, 1.0]", "minimum": 0.0, "maximum": 1.0}
+            },
+            "required": ["pickup_station", "dropoff_station", "straight_line_to_pickup_meters", "straight_line_from_dropoff_meters", "confidence_score"]
+        },
+        "BikeJourney": {
+            "type": "object",
+            "description": "Planned bike journey: candidate pickup/dropoff stations plus ranked recommendations.",
+            "properties": {
+                "pickup_stations":  {"type": "array", "items": {"$ref": "#/types/StationWithDistance"}},
+                "dropoff_stations": {"type": "array", "items": {"$ref": "#/types/StationWithDistance"}},
+                "recommendations":  {"type": "array", "items": {"$ref": "#/types/JourneyRecommendation"}}
+            },
+            "required": ["pickup_stations", "dropoff_stations", "recommendations"]
+        }
+    })
+}
+
 fn resources_documentation() -> Value {
     json!([
         {
@@ -353,6 +512,7 @@ fn error_codes_documentation() -> Value {
         {"code": -32700, "name": "Parse error",      "definition": "Malformed JSON or unparseable upstream payload."},
         {"code": -32600, "name": "Invalid request",  "definition": "Request is well-formed JSON but not a valid request (e.g. station not found)."},
         {"code": -32602, "name": "Invalid params",   "definition": "Coordinates, radius, limit, or other validated parameter is out of range."},
+        {"code": -32601, "name": "Method not found", "definition": "JSON-RPC method is unrecognized. Standard JSON-RPC 2.0 code; this server currently surfaces unknown methods as -32603 (Internal error) with message `Unknown method: <name>`, but clients should treat -32601 as the canonical signal for an unsupported method."},
         {"code": -32603, "name": "Internal error",   "definition": "Server-side failure: cache, MCP protocol, or unclassified internal error."},
         {"code": -32001, "name": "Server error",     "definition": "Upstream HTTP failure or rate-limited by the Paris Open Data API."}
     ])
@@ -371,6 +531,7 @@ mod tests {
             "data_freshness",
             "units",
             "enums",
+            "types",
             "tools",
             "resources",
             "error_codes",
@@ -378,6 +539,61 @@ mod tests {
         ] {
             assert!(doc.get(key).is_some(), "missing top-level key: {key}");
         }
+    }
+
+    /// Walk every `$ref` in the payload and assert it resolves against the
+    /// document. This catches the class of bug where a tool schema references
+    /// a `#/types/...` (or `#/enums/...`) node that nobody defined.
+    #[test]
+    fn every_ref_resolves_within_payload() {
+        let doc = build_api_description();
+        let mut unresolved: Vec<String> = Vec::new();
+        collect_unresolved_refs(&doc, &doc, &mut unresolved);
+        assert!(
+            unresolved.is_empty(),
+            "unresolved $ref pointers: {unresolved:?}"
+        );
+    }
+
+    fn collect_unresolved_refs(node: &Value, root: &Value, out: &mut Vec<String>) {
+        match node {
+            Value::Object(map) => {
+                if let Some(Value::String(pointer)) = map.get("$ref") {
+                    if resolve_pointer(root, pointer).is_none() {
+                        out.push(pointer.clone());
+                    }
+                }
+                for v in map.values() {
+                    collect_unresolved_refs(v, root, out);
+                }
+            }
+            Value::Array(items) => {
+                for v in items {
+                    collect_unresolved_refs(v, root, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_pointer<'a>(root: &'a Value, pointer: &str) -> Option<&'a Value> {
+        // Accept JSON-Pointer-style refs like "#/types/Foo".
+        let stripped = pointer.strip_prefix('#').unwrap_or(pointer);
+        let stripped = stripped.strip_prefix('/').unwrap_or(stripped);
+        if stripped.is_empty() {
+            return Some(root);
+        }
+        let mut cur = root;
+        for raw in stripped.split('/') {
+            // Per RFC 6901, ~1 -> '/' and ~0 -> '~' (decode in this order).
+            let token = raw.replace("~1", "/").replace("~0", "~");
+            cur = match cur {
+                Value::Object(m) => m.get(&token)?,
+                Value::Array(a) => a.get(token.parse::<usize>().ok()?)?,
+                _ => return None,
+            };
+        }
+        Some(cur)
     }
 
     #[test]

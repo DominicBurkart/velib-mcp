@@ -84,6 +84,7 @@ async fn docs_describe_returns_required_top_level_keys() {
         "data_freshness",
         "units",
         "enums",
+        "types",
         "tools",
         "resources",
         "error_codes",
@@ -260,12 +261,65 @@ async fn docs_documents_jsonrpc_error_codes() {
         .iter()
         .map(|e| e["code"].as_i64().unwrap())
         .collect();
-    for expected in [-32700, -32600, -32602, -32603, -32001] {
+    for expected in [-32700, -32600, -32601, -32602, -32603, -32001] {
         assert!(
             codes.contains(&expected),
             "error code {expected} not documented"
         );
     }
+}
+
+#[tokio::test]
+async fn docs_describe_every_ref_resolves() {
+    // Drift guard: every `$ref` in the payload must resolve to a real node.
+    // This catches dangling pointers like `#/types/Foo` when `types/Foo`
+    // hasn't been defined (regression coverage for issue spotted on PR #142).
+    let doc = fetch_docs_via_jsonrpc().await;
+    let mut unresolved: Vec<String> = Vec::new();
+    collect_unresolved_refs(&doc, &doc, &mut unresolved);
+    assert!(
+        unresolved.is_empty(),
+        "unresolved $ref pointers in docs payload: {unresolved:?}"
+    );
+}
+
+fn collect_unresolved_refs(node: &Value, root: &Value, out: &mut Vec<String>) {
+    match node {
+        Value::Object(map) => {
+            if let Some(Value::String(pointer)) = map.get("$ref") {
+                if resolve_pointer(root, pointer).is_none() {
+                    out.push(pointer.clone());
+                }
+            }
+            for v in map.values() {
+                collect_unresolved_refs(v, root, out);
+            }
+        }
+        Value::Array(items) => {
+            for v in items {
+                collect_unresolved_refs(v, root, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn resolve_pointer<'a>(root: &'a Value, pointer: &str) -> Option<&'a Value> {
+    let stripped = pointer.strip_prefix('#').unwrap_or(pointer);
+    let stripped = stripped.strip_prefix('/').unwrap_or(stripped);
+    if stripped.is_empty() {
+        return Some(root);
+    }
+    let mut cur = root;
+    for raw in stripped.split('/') {
+        let token = raw.replace("~1", "/").replace("~0", "~");
+        cur = match cur {
+            Value::Object(m) => m.get(&token)?,
+            Value::Array(a) => a.get(token.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    Some(cur)
 }
 
 #[tokio::test]
