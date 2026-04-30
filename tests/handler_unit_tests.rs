@@ -297,9 +297,7 @@ async fn test_outside_service_area_distance_predicate() {
     // distance payload — this ensures the OutsideServiceArea code path
     // is exercised in the test suite even though handler routing cannot
     // reach it for in-bbox coordinates under current bounds.
-    let distance_km = far_north
-        .distance_to(&Coordinates::new(48.8565, 2.3514))
-        / 1000.0;
+    let distance_km = far_north.distance_to(&Coordinates::new(48.8565, 2.3514)) / 1000.0;
     assert!(distance_km > 50.0, "synthetic distance should exceed 50 km");
 
     let err = Error::OutsideServiceArea { distance_km };
