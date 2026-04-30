@@ -248,7 +248,7 @@ impl McpServer {
                             "type": "object",
                             "properties": {
                                 "query": {"type": "string", "minLength": 2, "maxLength": 100},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
                             "required": ["query"]
@@ -535,7 +535,6 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
     let (reference_cache_size, realtime_cache_size, hit_rate) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
 
-    // Fetch stations to compute real lag from most recent station last_update timestamp
     let (realtime_status, reference_status, lag_seconds, most_recent_update) =
         match handler.get_complete_stations(true).await {
             Ok(stations) => {
