@@ -29,7 +29,22 @@ impl Coordinates {
         }
     }
 
-    /// Calculate distance to another coordinate in meters using Haversine formula
+    /// Calculate distance to another coordinate in meters using the Haversine
+    /// formula.
+    ///
+    /// # Examples
+    /// ```
+    /// use velib_mcp::Coordinates;
+    ///
+    /// let paris_center = Coordinates::new(48.8566, 2.3522);
+    /// let louvre = Coordinates::new(48.8606, 2.3376);
+    /// let meters = paris_center.distance_to(&louvre);
+    ///
+    /// // The Louvre is ~1.3 km from Paris's geographic center.
+    /// assert!((1_000.0..1_500.0).contains(&meters));
+    /// // Distance to self is zero.
+    /// assert_eq!(paris_center.distance_to(&paris_center), 0.0);
+    /// ```
     #[must_use]
     pub fn distance_to(&self, other: &Coordinates) -> f64 {
         let earth_radius = 6_371_000.0; // Earth radius in meters
