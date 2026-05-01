@@ -161,15 +161,19 @@ impl McpToolHandler {
     ) -> Result<SearchStationsByNameOutput> {
         let start_time = Instant::now();
 
-        if input.query.len() < 2 {
+        // Measure length in Unicode code points (chars) so that multi-byte
+        // characters such as accented French letters (é, è, â — 2 UTF-8 bytes
+        // each) are counted as one character, matching the JSON Schema
+        // `minLength`/`maxLength` contract (RFC 8259 / JSON Schema §6.3.1).
+        let char_count = input.query.chars().count();
+
+        if char_count < 2 {
             return Err(Error::Validation("Search query too short".to_string()));
         }
 
-        if input.query.len() > MAX_SEARCH_QUERY_LEN {
+        if char_count > MAX_SEARCH_QUERY_LEN {
             return Err(Error::Validation(format!(
-                "Search query too long: {} characters (max: {})",
-                input.query.len(),
-                MAX_SEARCH_QUERY_LEN
+                "Search query too long: {char_count} characters (max: {MAX_SEARCH_QUERY_LEN})"
             )));
         }
 
@@ -457,6 +461,95 @@ impl Default for JourneyPreferences {
         Self {
             bike_type: BikeTypeFilter::AnyType,
             max_walk_distance: 500,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::types::SearchStationsByNameInput;
+
+    fn make_search_input(query: &str) -> SearchStationsByNameInput {
+        SearchStationsByNameInput {
+            query: query.to_string(),
+            limit: 10,
+            fuzzy: true,
+        }
+    }
+
+    /// A 1-character query must be rejected with Err(Error::Validation(_)).
+    #[tokio::test]
+    async fn search_rejects_one_char_query() {
+        let handler = McpToolHandler::new();
+        let result = handler
+            .search_stations_by_name(make_search_input("a"))
+            .await;
+        assert!(
+            matches!(result, Err(Error::Validation(_))),
+            "expected Validation error, got: {result:?}"
+        );
+    }
+
+    /// A query that is <= 100 Unicode chars but > 100 UTF-8 bytes must be
+    /// **accepted** (51 × 'é' = 51 chars, 102 bytes — still within the 100-char
+    /// limit so it should reach the network layer and fail for a different
+    /// reason in CI, but it must NOT be rejected by the length guard).
+    ///
+    /// This is the critical byte-vs-char regression test.
+    #[tokio::test]
+    async fn search_accepts_multibyte_query_within_char_limit() {
+        let handler = McpToolHandler::new();
+        // 51 × 'é' = 51 Unicode chars, 102 UTF-8 bytes.
+        // The guard allows up to 100 chars, so this must NOT return
+        // Err(Error::Validation(_)) for the length reason.
+        let query = "é".repeat(51);
+        let result = handler
+            .search_stations_by_name(make_search_input(&query))
+            .await;
+        // In an offline test environment the network call will fail, but the
+        // failure must NOT be a Validation error about query length.
+        if let Err(Error::Validation(msg)) = &result {
+            assert!(
+                !msg.contains("too long"),
+                "51-char (102-byte) query was incorrectly rejected as too long: {msg}"
+            );
+        }
+    }
+
+    /// A query of exactly 101 Unicode chars (all ASCII) must be rejected.
+    #[tokio::test]
+    async fn search_rejects_101_char_query() {
+        let handler = McpToolHandler::new();
+        let query = "a".repeat(101);
+        let result = handler
+            .search_stations_by_name(make_search_input(&query))
+            .await;
+        assert!(
+            matches!(result, Err(Error::Validation(_))),
+            "expected Validation error for 101-char query, got: {result:?}"
+        );
+    }
+
+    /// A query that is 101 UTF-8 bytes but only 51 Unicode chars (50 × 'é' +
+    /// one extra byte-padding via ASCII 'x' trick) — actually let's use
+    /// 50 × 'é' + 'x' = 50+1 = 51 chars, 50*2+1 = 101 bytes.
+    /// Must NOT be rejected as too long (51 chars <= 100).
+    #[tokio::test]
+    async fn search_accepts_101_bytes_but_51_chars() {
+        let handler = McpToolHandler::new();
+        // 50 × 'é' (2 bytes each) + 'x' = 51 chars, 101 bytes.
+        let query = format!("{}x", "é".repeat(50));
+        assert_eq!(query.chars().count(), 51);
+        assert_eq!(query.len(), 101);
+        let result = handler
+            .search_stations_by_name(make_search_input(&query))
+            .await;
+        if let Err(Error::Validation(msg)) = &result {
+            assert!(
+                !msg.contains("too long"),
+                "51-char (101-byte) query was incorrectly rejected as too long: {msg}"
+            );
         }
     }
 }

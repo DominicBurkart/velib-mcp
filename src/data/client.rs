@@ -321,21 +321,25 @@ impl VelibDataClient {
 
     /// Get cache statistics: entry counts for both caches and the combined hit rate.
     ///
-    /// Hit rate is the average of the per-cache hit rates, each computed as
-    /// `hits / (hits + misses)`.  Returns `0.0` when no lookups have been
-    /// performed on either cache yet.
+    /// The hit rate is computed by pooling the raw hit and miss counters from
+    /// both caches: `(ref_hits + rt_hits) / (ref_hits + ref_misses + rt_hits +
+    /// rt_misses)`.  This gives the true ratio regardless of whether the two
+    /// caches receive the same number of lookups (they do not: some code paths
+    /// skip the realtime cache entirely).
+    ///
+    /// Returns `0.0` when neither cache has been queried yet.
     pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
 
-        let ref_rate = self.reference_cache.hit_rate();
-        let rt_rate = self.realtime_cache.hit_rate();
-
-        // Both caches are queried together on every request, so their lookup
-        // counts are always equal and a simple average gives the true combined
-        // rate.  When neither has been queried yet both rates are 0.0 and the
-        // average is correctly 0.0.
-        let hit_rate = (ref_rate + rt_rate) / 2.0;
+        let (rh, rm) = self.reference_cache.stats();
+        let (th, tm) = self.realtime_cache.stats();
+        let total = rh.saturating_add(rm).saturating_add(th).saturating_add(tm);
+        let hit_rate = if total == 0 {
+            0.0
+        } else {
+            rh.saturating_add(th) as f64 / total as f64
+        };
 
         (reference_size, realtime_size, hit_rate)
     }
