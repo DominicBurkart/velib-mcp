@@ -58,38 +58,13 @@ where
         None
     }
 
-    /// Returns the raw `(hits, misses)` counters for this cache.
-    ///
-    /// Use these to compute a pooled hit rate across multiple caches rather
-    /// than averaging per-cache rates, which is inaccurate when the caches
-    /// receive different numbers of lookups.
-    #[must_use]
-    pub fn stats(&self) -> (u64, u64) {
-        (
-            self.hits.load(Ordering::Relaxed),
-            self.misses.load(Ordering::Relaxed),
-        )
-    }
-
     /// Returns the cache hit rate as a value in [0.0, 1.0].
     /// Returns 0.0 when no lookups have been performed yet.
-    ///
-    /// Note: when a key is present but its TTL has expired, the lookup is
-    /// counted as a **miss** (the expired entry is not returned).  In a
-    /// cache with a small number of keys this produces exactly one stale-key
-    /// miss per TTL boundary before the entry is refreshed, which slightly
-    /// depresses the reported rate.  If you need a rate unaffected by
-    /// expiry events, use [`stats`] to obtain the raw counters and exclude
-    /// the stale lookups tracked by a separate counter in your own code.
-    ///
-    /// The sum `hits + misses` is computed with saturating arithmetic so the
-    /// result is well-defined even after a very large number of lookups in a
-    /// long-running process.
     #[must_use]
     pub fn hit_rate(&self) -> f64 {
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
-        let total = hits.saturating_add(misses);
+        let total = hits + misses;
         if total == 0 {
             0.0
         } else {
@@ -134,52 +109,168 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration as StdDuration;
 
-    /// Fresh cache — no lookups yet → hit_rate() must be 0.0 and stats (0,0).
+    #[test]
+    fn cache_entry_not_expired_within_ttl() {
+        let entry = CacheEntry::new(42, Duration::seconds(60));
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn cache_entry_expired_with_negative_ttl() {
+        let entry = CacheEntry::new(42, Duration::seconds(-1));
+        assert!(entry.is_expired());
+    }
+
     #[tokio::test]
-    async fn hit_rate_fresh_cache() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
+    async fn insert_and_get_returns_value() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key1".to_string(), 100).await;
+
+        let result = cache.get(&"key1".to_string()).await;
+        assert_eq!(result, Some(100));
+    }
+
+    #[tokio::test]
+    async fn get_missing_key_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        let result = cache.get(&"nonexistent".to_string()).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn expired_entry_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(-1));
+        cache.insert("key1".to_string(), 100).await;
+
+        let result = cache.get(&"key1".to_string()).await;
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn insert_with_custom_ttl() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(1));
+        cache
+            .insert_with_ttl("long_lived".to_string(), 200, Duration::seconds(3600))
+            .await;
+        cache
+            .insert_with_ttl("expired".to_string(), 300, Duration::seconds(-1))
+            .await;
+
+        assert_eq!(cache.get(&"long_lived".to_string()).await, Some(200));
+        assert_eq!(cache.get(&"expired".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn remove_returns_value_and_deletes() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key1".to_string(), 100).await;
+
+        let removed = cache.remove(&"key1".to_string()).await;
+        assert_eq!(removed, Some(100));
+        assert_eq!(cache.get(&"key1".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn remove_missing_key_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        let removed = cache.remove(&"nonexistent".to_string()).await;
+        assert_eq!(removed, None);
+    }
+
+    #[tokio::test]
+    async fn size_tracks_entries() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        assert_eq!(cache.size().await, 0);
+
+        cache.insert("a".to_string(), 1).await;
+        cache.insert("b".to_string(), 2).await;
+        cache.insert("c".to_string(), 3).await;
+        assert_eq!(cache.size().await, 3);
+
+        cache.remove(&"b".to_string()).await;
+        assert_eq!(cache.size().await, 2);
+    }
+
+    #[tokio::test]
+    async fn clear_removes_all_entries() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("a".to_string(), 1).await;
+        cache.insert("b".to_string(), 2).await;
+        assert_eq!(cache.size().await, 2);
+
+        cache.clear().await;
+        assert_eq!(cache.size().await, 0);
+        assert_eq!(cache.get(&"a".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_removes_only_expired() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+
+        cache.insert("live".to_string(), 1).await;
+        cache
+            .insert_with_ttl("expired".to_string(), 2, Duration::seconds(-1))
+            .await;
+
+        assert_eq!(cache.size().await, 2);
+
+        cache.cleanup_expired().await;
+
+        assert_eq!(cache.size().await, 1);
+        assert_eq!(cache.get(&"live".to_string()).await, Some(1));
+        assert_eq!(cache.get(&"expired".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn overwrite_replaces_value() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key".to_string(), 1).await;
+        cache.insert("key".to_string(), 2).await;
+
+        assert_eq!(cache.get(&"key".to_string()).await, Some(2));
+        assert_eq!(cache.size().await, 1);
+    }
+
+    #[tokio::test]
+    async fn integer_keys_work() {
+        let cache: InMemoryCache<u64, String> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert(42, "hello".to_string()).await;
+        cache.insert(99, "world".to_string()).await;
+
+        assert_eq!(cache.get(&42).await, Some("hello".to_string()));
+        assert_eq!(cache.get(&99).await, Some("world".to_string()));
+        assert_eq!(cache.get(&0).await, None);
+    }
+
+    #[tokio::test]
+    async fn hit_rate_zero_when_no_lookups() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
         assert_eq!(cache.hit_rate(), 0.0);
-        assert_eq!(cache.stats(), (0, 0));
     }
 
-    /// insert + get hit → hit_rate() == 1.0.
     #[tokio::test]
-    async fn hit_rate_one_hit() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
-        cache.insert("k".to_string(), "v".to_string()).await;
-        let result = cache.get(&"k".to_string()).await;
-        assert_eq!(result, Some("v".to_string()));
+    async fn hit_rate_one_after_only_hits() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await;
+        cache.get(&"k".to_string()).await;
         assert_eq!(cache.hit_rate(), 1.0);
-        assert_eq!(cache.stats(), (1, 0));
     }
 
-    /// One hit + one miss on a different key → hit_rate() == 0.5.
     #[tokio::test]
-    async fn hit_rate_one_hit_one_miss() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
-        cache.insert("present".to_string(), "v".to_string()).await;
-        let _ = cache.get(&"present".to_string()).await; // hit
-        let _ = cache.get(&"absent".to_string()).await;  // miss
-        assert!((cache.hit_rate() - 0.5).abs() < f64::EPSILON);
-        assert_eq!(cache.stats(), (1, 1));
+    async fn hit_rate_zero_after_only_misses() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.get(&"missing".to_string()).await;
+        assert_eq!(cache.hit_rate(), 0.0);
     }
 
-    /// Expired entry: lookup counts as a miss (not a hit).
     #[tokio::test]
-    async fn expired_entry_counts_as_miss() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::milliseconds(1));
-        cache.insert("k".to_string(), "v".to_string()).await;
-        // Wait long enough for the 1 ms TTL to lapse.
-        tokio::time::sleep(StdDuration::from_millis(20)).await;
-        let result = cache.get(&"k".to_string()).await;
-        // The key was found but expired → returned None and counted as miss.
-        assert!(result.is_none());
-        assert_eq!(cache.stats(), (0, 1));
+    async fn hit_rate_half_after_equal_hits_and_misses() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await; // hit
+        cache.get(&"missing".to_string()).await; // miss
+        assert!((cache.hit_rate() - 0.5).abs() < 1e-9);
     }
 }
