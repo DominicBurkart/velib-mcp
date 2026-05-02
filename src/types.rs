@@ -1,6 +1,19 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Reference point for the Paris Velib service area: Hôtel de Ville
+/// (Paris City Hall). Used to enforce the 50km service-area limit and
+/// to report distances in error messages. Keeping this as a single
+/// public constant avoids redefining the coordinates in handlers.
+pub const PARIS_CITY_HALL: Coordinates = Coordinates {
+    latitude: 48.8565,
+    longitude: 2.3514,
+};
+
+/// Maximum distance (meters) from Paris City Hall considered within the
+/// Velib service area.
+pub const PARIS_SERVICE_AREA_MAX_METERS: f64 = 50_000.0;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Coordinates {
     pub latitude: f64,
@@ -34,52 +47,32 @@ impl Coordinates {
         earth_radius * c
     }
 
-    /// Check if coordinates are within reasonable bounds for Paris metro area
+    /// Check if coordinates are within a broad geographic region that includes
+    /// Paris and its surroundings (up to ~250 km away). This coarse filter
+    /// rejects clearly-wrong inputs (e.g. NYC, London) before the precise
+    /// 50 km service-area check. Using a wide bounding box ensures coordinates
+    /// that are near Paris but outside the 50 km radius are handled by
+    /// `is_within_paris_service_area` rather than this check.
     #[must_use]
     pub fn is_valid_paris_metro(&self) -> bool {
-        // Paris metro area bounds (approximate)
-        self.latitude >= 48.7
-            && self.latitude <= 49.0
-            && self.longitude >= 2.0
-            && self.longitude <= 2.6
+        // Broad bounding box: ~250 km around Paris
+        self.latitude >= 47.0
+            && self.latitude <= 50.5
+            && self.longitude >= 0.0
+            && self.longitude <= 5.0
     }
 
     /// Check if coordinates are within 50km of Paris City Hall (Hôtel de Ville)
-    /// Latitude: 48.8565° N, Longitude: 2.3514° E
     #[must_use]
     pub fn is_within_paris_service_area(&self) -> bool {
-        const PARIS_CITY_HALL_LAT: f64 = 48.8565;
-        const PARIS_CITY_HALL_LON: f64 = 2.3514;
-        const MAX_DISTANCE_METERS: f64 = 50_000.0; // 50km
-
-        let city_hall = Coordinates::new(PARIS_CITY_HALL_LAT, PARIS_CITY_HALL_LON);
-        let distance = self.distance_to(&city_hall);
-
-        distance <= MAX_DISTANCE_METERS
+        self.distance_to(&PARIS_CITY_HALL) <= PARIS_SERVICE_AREA_MAX_METERS
     }
 
-    /// Validate that coordinates are usable for the Vélib service: they must
-    /// fall within the Paris metro bounding box *and* within 50 km of City
-    /// Hall.  Returns the first error encountered so callers get a precise,
-    /// actionable message rather than a generic failure.
-    pub fn validate_for_velib_service(&self) -> Result<(), crate::Error> {
-        if !self.is_valid_paris_metro() {
-            return Err(crate::Error::InvalidCoordinates {
-                latitude: self.latitude,
-                longitude: self.longitude,
-            });
-        }
-
-        if !self.is_within_paris_service_area() {
-            const PARIS_CITY_HALL: Coordinates = Coordinates {
-                latitude: 48.8565,
-                longitude: 2.3514,
-            };
-            let distance_km = self.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(crate::Error::OutsideServiceArea { distance_km });
-        }
-
-        Ok(())
+    /// Distance from this coordinate to Paris City Hall, in kilometers.
+    /// Useful when constructing `OutsideServiceArea` errors.
+    #[must_use]
+    pub fn distance_to_paris_city_hall_km(&self) -> f64 {
+        self.distance_to(&PARIS_CITY_HALL) / 1000.0
     }
 }
 
@@ -366,23 +359,14 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_for_velib_service() {
-        // Valid Paris coordinate
-        let paris = Coordinates::new(48.8566, 2.3522);
-        assert!(paris.validate_for_velib_service().is_ok());
+    fn test_distance_to_paris_city_hall_km() {
+        // At Paris City Hall itself the distance must be ~0.
+        assert!(PARIS_CITY_HALL.distance_to_paris_city_hall_km() < 0.001);
 
-        // Invalid bounding box (NYC)
-        let nyc = Coordinates::new(40.7128, -74.0060);
-        assert!(matches!(
-            nyc.validate_for_velib_service(),
-            Err(crate::Error::InvalidCoordinates { .. })
-        ));
-
-        // Within bounding box but outside 50km service radius
-        // (no real coordinate satisfies this given the tight bbox, but the
-        //  method ordering is tested: metro check fires first)
+        // Roughly ~130km north should give a sensible kilometer value.
         let very_far = Coordinates::new(50.0, 2.3514);
-        assert!(very_far.validate_for_velib_service().is_err());
+        let km = very_far.distance_to_paris_city_hall_km();
+        assert!(km > 100.0 && km < 200.0, "unexpected km: {km}");
     }
 
     #[test]
