@@ -592,11 +592,12 @@ async fn test_plan_bike_journey_default_walk_limit_excludes_distant_pickup() {
     // Destination: ~2 km away (still Paris)
     let destination = Coordinates::new(48.8565, 2.3714);
 
-    // Pickup candidate > 500 m from origin - must be excluded
+    // Pickup candidate ~617 m north of origin — clearly beyond the 500 m default
+    // walk limit, so it must be excluded from pickup candidates.
     let far_pickup = make_station_custom(
         "FAR_PICK",
         "Far Pickup",
-        Coordinates::new(48.8610, 2.3514), // ~500+ m from origin
+        Coordinates::new(48.8620, 2.3514), // ~617 m from origin
         5,
         0,
         15,
@@ -626,7 +627,7 @@ async fn test_plan_bike_journey_default_walk_limit_excludes_distant_pickup() {
         .await
         .expect("should succeed");
 
-    // With no valid pickup (far_pickup is beyond 500 m), recommendations must be empty.
+    // With no valid pickup, recommendations must be empty.
     assert!(
         output.journey.recommendations.is_empty(),
         "no pickup within 500 m walk - recommendations should be empty"
