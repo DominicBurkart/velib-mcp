@@ -24,9 +24,8 @@ use tokio::time::sleep;
 use velib_mcp::{
     data::{cache::InMemoryCache, VelibDataClient},
     mcp::types::{
-        FindNearbyStationsInput, GetAreaStatisticsInput, GetStationByCodeInput,
-        GeographicBounds, PlanBikeJourneyInput, JourneyPreferences,
-        SearchStationsByNameInput,
+        FindNearbyStationsInput, GeographicBounds, GetAreaStatisticsInput, GetStationByCodeInput,
+        JourneyPreferences, PlanBikeJourneyInput, SearchStationsByNameInput,
     },
     mcp::McpToolHandler,
     types::{
@@ -87,8 +86,7 @@ fn make_station_custom(
 /// Seed a `VelibDataClient` with the supplied stations so that
 /// `get_all_stations` returns them without any network call.
 async fn client_with_stations(stations: Vec<VelibStation>) -> VelibDataClient {
-    let references: Vec<StationReference> =
-        stations.iter().map(|s| s.reference.clone()).collect();
+    let references: Vec<StationReference> = stations.iter().map(|s| s.reference.clone()).collect();
 
     let mut rt_map: HashMap<String, RealTimeStatus> = HashMap::new();
     for s in &stations {
@@ -113,7 +111,11 @@ async fn test_cache_entry_expires_after_ttl() {
     let key = "expiry_key".to_string();
 
     cache
-        .insert_with_ttl(key.clone(), "hello".to_string(), ChronoDuration::milliseconds(100))
+        .insert_with_ttl(
+            key.clone(),
+            "hello".to_string(),
+            ChronoDuration::milliseconds(100),
+        )
         .await;
 
     assert!(
@@ -140,17 +142,18 @@ async fn test_find_nearby_stations_excludes_distant_stations() {
     let query_lon = 2.3499;
 
     let near = make_open_station(make_reference(
-        "NEAR001", "Near Station",
+        "NEAR001",
+        "Near Station",
         Coordinates::new(48.8533, 2.3503), // ~100 m
     ));
     let far = make_open_station(make_reference(
-        "FAR001", "Far Station",
+        "FAR001",
+        "Far Station",
         Coordinates::new(48.8900, 2.3499), // ~5 km
     ));
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![near, far]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![near, far]).await);
 
     let output = handler
         .find_nearby_stations(FindNearbyStationsInput {
@@ -177,12 +180,24 @@ async fn test_find_nearby_stations_excludes_distant_stations() {
 async fn test_find_nearby_stations_sorted_closest_first() {
     let origin = Coordinates::new(48.8565, 2.3514); // Paris City Hall
 
-    let close = make_open_station(make_reference("CLOSE", "Close", Coordinates::new(48.8566, 2.3514)));
-    let mid   = make_open_station(make_reference("MID",   "Mid",   Coordinates::new(48.8575, 2.3514)));
-    let far   = make_open_station(make_reference("FAR",   "Far",   Coordinates::new(48.8590, 2.3514)));
+    let close = make_open_station(make_reference(
+        "CLOSE",
+        "Close",
+        Coordinates::new(48.8566, 2.3514),
+    ));
+    let mid = make_open_station(make_reference(
+        "MID",
+        "Mid",
+        Coordinates::new(48.8575, 2.3514),
+    ));
+    let far = make_open_station(make_reference(
+        "FAR",
+        "Far",
+        Coordinates::new(48.8590, 2.3514),
+    ));
 
     let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![far.clone(), mid.clone(), close.clone()]).await,
+        client_with_stations(vec![far, mid, close]).await,
     );
 
     let output = handler
@@ -197,10 +212,14 @@ async fn test_find_nearby_stations_sorted_closest_first() {
         .expect("should succeed");
 
     assert_eq!(output.stations.len(), 3);
-    assert!(output.stations[0].straight_line_distance_meters
-        <= output.stations[1].straight_line_distance_meters);
-    assert!(output.stations[1].straight_line_distance_meters
-        <= output.stations[2].straight_line_distance_meters);
+    assert!(
+        output.stations[0].straight_line_distance_meters
+            <= output.stations[1].straight_line_distance_meters
+    );
+    assert!(
+        output.stations[1].straight_line_distance_meters
+            <= output.stations[2].straight_line_distance_meters
+    );
 }
 
 #[tokio::test]
@@ -216,9 +235,8 @@ async fn test_find_nearby_stations_limit_enforced() {
         })
         .collect();
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(stations).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(stations).await);
 
     let output = handler
         .find_nearby_stations(FindNearbyStationsInput {
@@ -262,7 +280,10 @@ async fn test_find_nearby_stations_rejects_london_coordinates() {
         })
         .await;
     match result.expect_err("London should be rejected") {
-        Error::InvalidCoordinates { latitude, longitude } => {
+        Error::InvalidCoordinates {
+            latitude,
+            longitude,
+        } => {
             assert!((latitude - 51.5074).abs() < 1e-9);
             assert!((longitude - (-0.1278)).abs() < 1e-9);
         }
@@ -277,11 +298,13 @@ async fn test_find_nearby_stations_rejects_london_coordinates() {
 #[tokio::test]
 async fn test_search_stations_by_name_nfc_normalization() {
     let chatelet = make_open_station(make_reference(
-        "CHAT001", "Ch\u{00E2}telet",
+        "CHAT001",
+        "Ch\u{00E2}telet",
         Coordinates::new(48.8600, 2.3470),
     ));
     let other = make_open_station(make_reference(
-        "OTHER001", "Op\u{00E9}ra",
+        "OTHER001",
+        "Op\u{00E9}ra",
         Coordinates::new(48.8566, 2.3522),
     ));
 
@@ -289,7 +312,7 @@ async fn test_search_stations_by_name_nfc_normalization() {
         client_with_stations(vec![chatelet, other]).await,
     );
 
-    // NFD form of "châtelet" (a + combining circumflex U+0302)
+    // NFD form of "ch\u{00e2}telet" (a + combining circumflex U+0302)
     let query_nfd = "cha\u{0302}telet";
     let output = handler
         .search_stations_by_name(SearchStationsByNameInput {
@@ -307,17 +330,24 @@ async fn test_search_stations_by_name_nfc_normalization() {
         .collect();
 
     assert!(codes.contains(&"CHAT001"), "NFC match failed; got: {codes:?}");
-    assert!(!codes.contains(&"OTHER001"), "unrelated station present; got: {codes:?}");
+    assert!(
+        !codes.contains(&"OTHER001"),
+        "unrelated station present; got: {codes:?}"
+    );
 }
 
 #[tokio::test]
 async fn test_search_stations_by_name_prefix_only_when_fuzzy_false() {
-    // "Bastille" starts with "bas"; "Opéra Bastille" has it in the middle.
+    // "Bastille" starts with "bastille"; "Op\u{00e9}ra Bastille" has it in the middle.
     let starts = make_open_station(make_reference(
-        "A", "Bastille", Coordinates::new(48.8533, 2.3692),
+        "A",
+        "Bastille",
+        Coordinates::new(48.8533, 2.3692),
     ));
     let middle = make_open_station(make_reference(
-        "B", "Op\u{00E9}ra Bastille", Coordinates::new(48.8534, 2.3693),
+        "B",
+        "Op\u{00E9}ra Bastille",
+        Coordinates::new(48.8534, 2.3693),
     ));
 
     let handler = McpToolHandler::with_data_client(
@@ -340,7 +370,10 @@ async fn test_search_stations_by_name_prefix_only_when_fuzzy_false() {
         .collect();
 
     assert!(codes.contains(&"A"), "prefix-match station missing; got: {codes:?}");
-    assert!(!codes.contains(&"B"), "middle-match should be excluded when fuzzy=false; got: {codes:?}");
+    assert!(
+        !codes.contains(&"B"),
+        "middle-match should be excluded when fuzzy=false; got: {codes:?}"
+    );
 }
 
 #[tokio::test]
@@ -363,12 +396,12 @@ async fn test_search_stations_by_name_rejects_short_query() {
 #[tokio::test]
 async fn test_get_station_by_code_found() {
     let station = make_open_station(make_reference(
-        "16107", "Benjamin Godard - Victor Hugo",
+        "16107",
+        "Benjamin Godard - Victor Hugo",
         Coordinates::new(48.8656, 2.2779),
     ));
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![station]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
 
     let output = handler
         .get_station_by_code(GetStationByCodeInput {
@@ -380,17 +413,13 @@ async fn test_get_station_by_code_found() {
 
     assert!(output.found);
     assert!(output.station.is_some());
-    assert_eq!(
-        output.station.unwrap().reference.station_code,
-        "16107"
-    );
+    assert_eq!(output.station.unwrap().reference.station_code, "16107");
 }
 
 #[tokio::test]
 async fn test_get_station_by_code_not_found() {
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![]).await);
 
     let output = handler
         .get_station_by_code(GetStationByCodeInput {
@@ -422,20 +451,32 @@ async fn test_get_area_statistics_totals_and_occupancy() {
     };
 
     let a = make_station_custom(
-        "A", "Alpha",
+        "A",
+        "Alpha",
         Coordinates::new(48.860, 2.360),
-        4, 2, 14, StationStatus::Open,
+        4,
+        2,
+        14,
+        StationStatus::Open,
     );
     let b = make_station_custom(
-        "B", "Beta",
+        "B",
+        "Beta",
         Coordinates::new(48.855, 2.355),
-        1, 3, 16, StationStatus::Open,
+        1,
+        3,
+        16,
+        StationStatus::Open,
     );
-    // Station outside the bbox — must not appear in stats
+    // Station outside the bbox - must not appear in stats
     let outside = make_station_custom(
-        "OUT", "Outside",
+        "OUT",
+        "Outside",
         Coordinates::new(48.900, 2.360),
-        5, 5, 10, StationStatus::Open,
+        5,
+        5,
+        10,
+        StationStatus::Open,
     );
 
     let handler = McpToolHandler::with_data_client(
@@ -468,11 +509,12 @@ async fn test_get_area_statistics_totals_and_occupancy() {
 #[tokio::test]
 async fn test_get_area_statistics_empty_bbox_returns_zeros() {
     let station = make_open_station(make_reference(
-        "A", "Alpha", Coordinates::new(48.860, 2.360),
+        "A",
+        "Alpha",
+        Coordinates::new(48.860, 2.360),
     ));
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![station]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
 
     // Bounding box that contains no stations
     let output = handler
@@ -505,14 +547,22 @@ async fn test_get_area_statistics_closed_station_excluded_from_operational() {
     };
 
     let open = make_station_custom(
-        "OPEN", "Open Station",
+        "OPEN",
+        "Open Station",
         Coordinates::new(48.860, 2.360),
-        2, 0, 18, StationStatus::Open,
+        2,
+        0,
+        18,
+        StationStatus::Open,
     );
     let closed = make_station_custom(
-        "CLOSED", "Closed Station",
+        "CLOSED",
+        "Closed Station",
         Coordinates::new(48.855, 2.355),
-        0, 0, 20, StationStatus::Closed,
+        0,
+        0,
+        20,
+        StationStatus::Closed,
     );
 
     let handler = McpToolHandler::with_data_client(
@@ -542,17 +592,25 @@ async fn test_plan_bike_journey_default_walk_limit_excludes_distant_pickup() {
     // Destination: ~2 km away (still Paris)
     let destination = Coordinates::new(48.8565, 2.3714);
 
-    // Pickup candidate > 500 m from origin — must be excluded
+    // Pickup candidate > 500 m from origin - must be excluded
     let far_pickup = make_station_custom(
-        "FAR_PICK", "Far Pickup",
+        "FAR_PICK",
+        "Far Pickup",
         Coordinates::new(48.8610, 2.3514), // ~500+ m from origin
-        5, 0, 15, StationStatus::Open,
+        5,
+        0,
+        15,
+        StationStatus::Open,
     );
     // Dropoff candidate near destination
     let near_drop = make_station_custom(
-        "NEAR_DROP", "Near Dropoff",
+        "NEAR_DROP",
+        "Near Dropoff",
         Coordinates::new(48.8566, 2.3714),
-        0, 0, 20, StationStatus::Open,
+        0,
+        0,
+        20,
+        StationStatus::Open,
     );
 
     let handler = McpToolHandler::with_data_client(
@@ -571,24 +629,32 @@ async fn test_plan_bike_journey_default_walk_limit_excludes_distant_pickup() {
     // With no valid pickup (far_pickup is beyond 500 m), recommendations must be empty.
     assert!(
         output.journey.recommendations.is_empty(),
-        "no pickup within 500 m walk — recommendations should be empty"
+        "no pickup within 500 m walk - recommendations should be empty"
     );
 }
 
 #[tokio::test]
 async fn test_plan_bike_journey_valid_pair_produces_recommendation_with_bounded_confidence() {
-    let origin      = Coordinates::new(48.8565, 2.3514);
+    let origin = Coordinates::new(48.8565, 2.3514);
     let destination = Coordinates::new(48.8565, 2.3714);
 
     let near_pickup = make_station_custom(
-        "PICK", "Pickup",
+        "PICK",
+        "Pickup",
         Coordinates::new(48.8566, 2.3516), // ~20 m from origin
-        5, 0, 15, StationStatus::Open,
+        5,
+        0,
+        15,
+        StationStatus::Open,
     );
     let near_drop = make_station_custom(
-        "DROP", "Dropoff",
+        "DROP",
+        "Dropoff",
         Coordinates::new(48.8566, 2.3716), // ~20 m from destination
-        0, 0, 20, StationStatus::Open,
+        0,
+        0,
+        20,
+        StationStatus::Open,
     );
 
     let handler = McpToolHandler::with_data_client(
@@ -617,19 +683,27 @@ async fn test_plan_bike_journey_valid_pair_produces_recommendation_with_bounded_
 
 #[tokio::test]
 async fn test_plan_bike_journey_excludes_zero_bike_pickup_candidates() {
-    let origin      = Coordinates::new(48.8565, 2.3514);
+    let origin = Coordinates::new(48.8565, 2.3514);
     let destination = Coordinates::new(48.8565, 2.3714);
 
-    // Station with 0 bikes — must not be a pickup candidate
+    // Station with 0 bikes - must not be a pickup candidate
     let no_bikes = make_station_custom(
-        "NO_BIKES", "No Bikes",
+        "NO_BIKES",
+        "No Bikes",
         Coordinates::new(48.8566, 2.3516),
-        0, 0, 20, StationStatus::Open,
+        0,
+        0,
+        20,
+        StationStatus::Open,
     );
     let near_drop = make_station_custom(
-        "DROP", "Dropoff",
+        "DROP",
+        "Dropoff",
         Coordinates::new(48.8566, 2.3716),
-        0, 0, 20, StationStatus::Open,
+        0,
+        0,
+        20,
+        StationStatus::Open,
     );
 
     let handler = McpToolHandler::with_data_client(
@@ -657,26 +731,34 @@ async fn test_plan_bike_journey_excludes_zero_bike_pickup_candidates() {
 
 #[tokio::test]
 async fn test_plan_bike_journey_bike_type_preference_respected() {
-    let origin      = Coordinates::new(48.8565, 2.3514);
+    let origin = Coordinates::new(48.8565, 2.3514);
     let destination = Coordinates::new(48.8565, 2.3714);
 
     // Only mechanical bikes available
     let mech_only = make_station_custom(
-        "MECH", "Mechanical Only",
+        "MECH",
+        "Mechanical Only",
         Coordinates::new(48.8566, 2.3516),
-        5, 0, 15, StationStatus::Open,
+        5,
+        0,
+        15,
+        StationStatus::Open,
     );
     let near_drop = make_station_custom(
-        "DROP", "Dropoff",
+        "DROP",
+        "Dropoff",
         Coordinates::new(48.8566, 2.3716),
-        0, 0, 20, StationStatus::Open,
+        0,
+        0,
+        20,
+        StationStatus::Open,
     );
 
     let handler = McpToolHandler::with_data_client(
         client_with_stations(vec![mech_only, near_drop]).await,
     );
 
-    // Request electric only — should find no pickup candidates
+    // Request electric only - should find no pickup candidates
     let output_electric = handler
         .plan_bike_journey(PlanBikeJourneyInput {
             origin,
@@ -691,6 +773,6 @@ async fn test_plan_bike_journey_bike_type_preference_respected() {
 
     assert!(
         output_electric.journey.pickup_stations.is_empty(),
-        "no electric bikes available — pickup_stations should be empty"
+        "no electric bikes available - pickup_stations should be empty"
     );
 }
