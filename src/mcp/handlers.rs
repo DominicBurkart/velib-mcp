@@ -156,7 +156,6 @@ impl McpToolHandler {
     ) -> Result<FindNearbyStationsOutput> {
         let start_time = Instant::now();
 
-        // Validate input parameters
         if input.radius_meters > MAX_SEARCH_RADIUS {
             return Err(Error::SearchRadiusTooLarge {
                 radius: input.radius_meters,
@@ -174,11 +173,9 @@ impl McpToolHandler {
         let query_point = Coordinates::new(input.latitude, input.longitude);
         ensure_in_service_area(&query_point)?;
 
-        // Fetch live station data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations by distance and bike type
         let stations = find_stations_within_radius(
             &all_stations,
             &query_point,
@@ -241,7 +238,6 @@ impl McpToolHandler {
             });
         }
 
-        // Fetch live station data and search by name
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
@@ -263,10 +259,8 @@ impl McpToolHandler {
             })
             .collect();
 
-        // Sort by name for consistent results
+        // Sort by name so identical scores produce a stable, alphabetised order.
         matching_stations.sort_by(|a, b| a.reference.name.cmp(&b.reference.name));
-
-        // Limit results
         matching_stations.truncate(input.limit as usize);
 
         let stations = matching_stations;
@@ -307,14 +301,11 @@ impl McpToolHandler {
         ensure_in_service_area(&input.origin)?;
         ensure_in_service_area(&input.destination)?;
 
-        // Find nearby stations for pickup and dropoff using live data
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Get preferences or use defaults
         let preferences = input.preferences.unwrap_or_default();
 
-        // Find pickup stations near origin
         let pickup_stations = find_stations_within_radius(
             &all_stations,
             &input.origin,
@@ -325,7 +316,6 @@ impl McpToolHandler {
             },
         );
 
-        // Find dropoff stations near destination
         let dropoff_stations = find_stations_within_radius(
             &all_stations,
             &input.destination,
@@ -334,15 +324,14 @@ impl McpToolHandler {
             |station| station.is_operational() && station.has_available_docks(1),
         );
 
-        // Generate journey recommendations
         let mut recommendations = Vec::new();
 
         if !pickup_stations.is_empty() && !dropoff_stations.is_empty() {
-            // Create recommendations by pairing closest pickup with closest dropoff
+            // Pair the closest pickup with the closest dropoff. Confidence is
+            // derived from how much of the user's walking budget each leg consumes.
             let best_pickup = &pickup_stations[0];
             let best_dropoff = &dropoff_stations[0];
 
-            // Calculate confidence score based on walking distances
             let max_walk = f64::from(preferences.max_walk_distance);
             let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
             let dropoff_walk_ratio =
