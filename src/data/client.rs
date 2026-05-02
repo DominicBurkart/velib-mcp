@@ -441,4 +441,25 @@ mod tests {
         let record = json!({"is_installed": "OUI"});
         assert!(parse_realtime_status(&record).is_err());
     }
+
+    /// A numeric `stationcode` must be rejected.
+    ///
+    /// `parse_realtime_status` extracts the station code via `.as_str()`, which
+    /// returns `None` for non-string JSON values. This test asserts that a
+    /// numeric station code (e.g. `16107` instead of `"16107"`) is treated as a
+    /// parse failure rather than being silently coerced to a string — a coercion
+    /// regression would silently discard or mis-key real-time records.
+    #[test]
+    fn parse_realtime_status_rejects_numeric_station_code() {
+        let record = json!({
+            "stationcode": 16107,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        assert!(
+            parse_realtime_status(&record).is_err(),
+            "a numeric stationcode should be rejected; as_str() returns None for non-string JSON values"
+        );
+    }
 }
