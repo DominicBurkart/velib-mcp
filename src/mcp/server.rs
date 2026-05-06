@@ -476,7 +476,7 @@ async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result
     }))
 }
 
-/// Get real-time stations resource data  
+/// Get real-time stations resource data
 async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let realtime_status = handler.get_realtime_status().await?;
 
@@ -502,7 +502,6 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
         "stations": stations,
         "metadata": {
             "total_stations": stations.len(),
-            "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
         }
@@ -517,7 +516,6 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
         "stations": stations,
         "metadata": {
             "total_stations": stations.len(),
-            "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
         }
