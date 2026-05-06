@@ -152,8 +152,7 @@ async fn test_find_nearby_stations_excludes_distant_stations() {
         Coordinates::new(48.8900, 2.3499), // ~5 km
     ));
 
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![near, far]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![near, far]).await);
 
     let output = handler
         .find_nearby_stations(FindNearbyStationsInput {
@@ -172,8 +171,14 @@ async fn test_find_nearby_stations_excludes_distant_stations() {
         .map(|s| s.station.reference.station_code.as_str())
         .collect();
 
-    assert!(codes.contains(&"NEAR001"), "nearby station missing; got: {codes:?}");
-    assert!(!codes.contains(&"FAR001"), "distant station present; got: {codes:?}");
+    assert!(
+        codes.contains(&"NEAR001"),
+        "nearby station missing; got: {codes:?}"
+    );
+    assert!(
+        !codes.contains(&"FAR001"),
+        "distant station present; got: {codes:?}"
+    );
 }
 
 #[tokio::test]
@@ -196,9 +201,8 @@ async fn test_find_nearby_stations_sorted_closest_first() {
         Coordinates::new(48.8590, 2.3514),
     ));
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![far, mid, close]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![far, mid, close]).await);
 
     let output = handler
         .find_nearby_stations(FindNearbyStationsInput {
@@ -235,8 +239,7 @@ async fn test_find_nearby_stations_limit_enforced() {
         })
         .collect();
 
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(stations).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(stations).await);
 
     let output = handler
         .find_nearby_stations(FindNearbyStationsInput {
@@ -308,9 +311,8 @@ async fn test_search_stations_by_name_nfc_normalization() {
         Coordinates::new(48.8566, 2.3522),
     ));
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![chatelet, other]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![chatelet, other]).await);
 
     // NFD form of "ch\u{00e2}telet" (a + combining circumflex U+0302)
     let query_nfd = "cha\u{0302}telet";
@@ -329,7 +331,10 @@ async fn test_search_stations_by_name_nfc_normalization() {
         .map(|s| s.reference.station_code.as_str())
         .collect();
 
-    assert!(codes.contains(&"CHAT001"), "NFC match failed; got: {codes:?}");
+    assert!(
+        codes.contains(&"CHAT001"),
+        "NFC match failed; got: {codes:?}"
+    );
     assert!(
         !codes.contains(&"OTHER001"),
         "unrelated station present; got: {codes:?}"
@@ -350,9 +355,8 @@ async fn test_search_stations_by_name_prefix_only_when_fuzzy_false() {
         Coordinates::new(48.8534, 2.3693),
     ));
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![starts, middle]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![starts, middle]).await);
 
     let output = handler
         .search_stations_by_name(SearchStationsByNameInput {
@@ -369,7 +373,10 @@ async fn test_search_stations_by_name_prefix_only_when_fuzzy_false() {
         .map(|s| s.reference.station_code.as_str())
         .collect();
 
-    assert!(codes.contains(&"A"), "prefix-match station missing; got: {codes:?}");
+    assert!(
+        codes.contains(&"A"),
+        "prefix-match station missing; got: {codes:?}"
+    );
     assert!(
         !codes.contains(&"B"),
         "middle-match should be excluded when fuzzy=false; got: {codes:?}"
@@ -400,8 +407,7 @@ async fn test_get_station_by_code_found() {
         "Benjamin Godard - Victor Hugo",
         Coordinates::new(48.8656, 2.2779),
     ));
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
 
     let output = handler
         .get_station_by_code(GetStationByCodeInput {
@@ -418,8 +424,7 @@ async fn test_get_station_by_code_found() {
 
 #[tokio::test]
 async fn test_get_station_by_code_not_found() {
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![]).await);
 
     let output = handler
         .get_station_by_code(GetStationByCodeInput {
@@ -479,9 +484,8 @@ async fn test_get_area_statistics_totals_and_occupancy() {
         StationStatus::Open,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![a, b, outside]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![a, b, outside]).await);
 
     let output = handler
         .get_area_statistics(GetAreaStatisticsInput {
@@ -513,8 +517,7 @@ async fn test_get_area_statistics_empty_bbox_returns_zeros() {
         "Alpha",
         Coordinates::new(48.860, 2.360),
     ));
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![station]).await);
 
     // Bounding box that contains no stations
     let output = handler
@@ -565,9 +568,8 @@ async fn test_get_area_statistics_closed_station_excluded_from_operational() {
         StationStatus::Closed,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![open, closed]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![open, closed]).await);
 
     let output = handler
         .get_area_statistics(GetAreaStatisticsInput {
@@ -614,9 +616,8 @@ async fn test_plan_bike_journey_default_walk_limit_excludes_distant_pickup() {
         StationStatus::Open,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![far_pickup, near_drop]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![far_pickup, near_drop]).await);
 
     let output = handler
         .plan_bike_journey(PlanBikeJourneyInput {
@@ -658,9 +659,8 @@ async fn test_plan_bike_journey_valid_pair_produces_recommendation_with_bounded_
         StationStatus::Open,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![near_pickup, near_drop]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![near_pickup, near_drop]).await);
 
     let output = handler
         .plan_bike_journey(PlanBikeJourneyInput {
@@ -707,9 +707,8 @@ async fn test_plan_bike_journey_excludes_zero_bike_pickup_candidates() {
         StationStatus::Open,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![no_bikes, near_drop]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![no_bikes, near_drop]).await);
 
     let output = handler
         .plan_bike_journey(PlanBikeJourneyInput {
@@ -755,9 +754,8 @@ async fn test_plan_bike_journey_bike_type_preference_respected() {
         StationStatus::Open,
     );
 
-    let handler = McpToolHandler::with_data_client(
-        client_with_stations(vec![mech_only, near_drop]).await,
-    );
+    let handler =
+        McpToolHandler::with_data_client(client_with_stations(vec![mech_only, near_drop]).await);
 
     // Request electric only - should find no pickup candidates
     let output_electric = handler
