@@ -6,8 +6,9 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -19,15 +20,11 @@ use crate::{Error, Result};
 
 pub struct McpServer {
     tool_handler: Arc<McpToolHandler>,
-    clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
+    /// Live WebSocket client ids. Tracking them as a set (rather than a
+    /// `HashMap<String, Metadata>` with an unused metadata struct) keeps the
+    /// connection bookkeeping minimal while still allowing future extension.
+    clients: Arc<RwLock<HashSet<String>>>,
     start_time: Instant,
-}
-
-#[derive(Debug)]
-struct WebSocketClient {
-    #[allow(dead_code)]
-    id: String,
-    // Additional client metadata can be added here
 }
 
 impl Default for McpServer {
@@ -41,7 +38,7 @@ impl McpServer {
     pub fn new() -> Self {
         Self {
             tool_handler: Arc::new(McpToolHandler::new()),
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: Arc::new(RwLock::new(HashSet::new())),
             start_time: Instant::now(),
         }
     }
@@ -114,20 +111,14 @@ impl McpServer {
     async fn handle_websocket_connection(
         mut socket: WebSocket,
         handler: Arc<McpToolHandler>,
-        clients: Arc<RwLock<HashMap<String, WebSocketClient>>>,
+        clients: Arc<RwLock<HashSet<String>>>,
     ) {
         let client_id = uuid::Uuid::new_v4().to_string();
         info!("New WebSocket connection: {}", client_id);
 
-        // Add client to the map
         {
             let mut clients_guard = clients.write().await;
-            clients_guard.insert(
-                client_id.clone(),
-                WebSocketClient {
-                    id: client_id.clone(),
-                },
-            );
+            clients_guard.insert(client_id.clone());
         }
 
         // Handle messages
@@ -257,7 +248,7 @@ impl McpServer {
                             "type": "object",
                             "properties": {
                                 "query": {"type": "string", "minLength": 2},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
                             "required": ["query"]
@@ -327,64 +318,23 @@ impl McpServer {
 
                 match tool_name {
                     "find_nearby_stations" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.find_nearby_stations(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                        tool_text_content(arguments, |input| handler.find_nearby_stations(input))
+                            .await
                     }
                     "get_station_by_code" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.get_station_by_code(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                        tool_text_content(arguments, |input| handler.get_station_by_code(input))
+                            .await
                     }
                     "search_stations_by_name" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.search_stations_by_name(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                        tool_text_content(arguments, |input| handler.search_stations_by_name(input))
+                            .await
                     }
                     "get_area_statistics" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.get_area_statistics(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                        tool_text_content(arguments, |input| handler.get_area_statistics(input))
+                            .await
                     }
                     "plan_bike_journey" => {
-                        let input = serde_json::from_value(arguments.clone())?;
-                        let output = handler.plan_bike_journey(input).await?;
-                        Ok(json!({
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": serde_json::to_string_pretty(&output)?
-                                }
-                            ]
-                        }))
+                        tool_text_content(arguments, |input| handler.plan_bike_journey(input)).await
                     }
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
@@ -440,6 +390,42 @@ impl McpServer {
     }
 }
 
+/// Deserialize `arguments` into the input type expected by `call`, invoke it,
+/// and wrap the serialized output into the standard MCP text-content envelope
+/// used by every tool call response.
+async fn tool_text_content<I, O, F, Fut>(arguments: &Value, call: F) -> Result<Value>
+where
+    I: DeserializeOwned,
+    O: Serialize,
+    F: FnOnce(I) -> Fut,
+    Fut: std::future::Future<Output = Result<O>>,
+{
+    let input: I = serde_json::from_value(arguments.clone())?;
+    let output = call(input).await?;
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": serde_json::to_string_pretty(&output)?
+            }
+        ]
+    }))
+}
+
+/// Build a consistent 500 response with a user-facing message plus the
+/// underlying error details. Used by every branch of `handle_resource`.
+fn resource_error(err: Error, user_message: &str) -> Response {
+    error!("{}: {}", user_message, err);
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({
+            "error": user_message,
+            "details": err.to_string()
+        })),
+    )
+        .into_response()
+}
+
 async fn handle_resource(
     axum::extract::Path(uri): axum::extract::Path<String>,
     handler: Arc<McpToolHandler>,
@@ -449,64 +435,24 @@ async fn handle_resource(
         "velib://stations/reference" => {
             match get_reference_stations_resource(Arc::clone(&handler)).await {
                 Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get reference stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch reference stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
+                Err(e) => resource_error(e, "Failed to fetch reference stations"),
             }
         }
         "velib://stations/realtime" => {
             match get_realtime_stations_resource(Arc::clone(&handler)).await {
                 Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get real-time stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch real-time stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
+                Err(e) => resource_error(e, "Failed to fetch real-time stations"),
             }
         }
         "velib://stations/complete" => {
             match get_complete_stations_resource(Arc::clone(&handler)).await {
                 Ok(response) => Json(response).into_response(),
-                Err(e) => {
-                    error!("Failed to get complete stations: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({
-                            "error": "Failed to fetch complete stations",
-                            "details": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
+                Err(e) => resource_error(e, "Failed to fetch complete stations"),
             }
         }
         "velib://health" => match get_health_resource(Arc::clone(&handler), start_time).await {
             Ok(response) => Json(response).into_response(),
-            Err(e) => {
-                error!("Failed to get health status: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "error": "Failed to fetch health status",
-                        "details": e.to_string()
-                    })),
-                )
-                    .into_response()
-            }
+            Err(e) => resource_error(e, "Failed to fetch health status"),
         },
         _ => (
             StatusCode::NOT_FOUND,
@@ -578,22 +524,18 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
     }))
 }
 
-/// Get health resource data with real metrics
+/// Get health resource data with real metrics.
+///
+/// Reports real uptime, real cache sizes, and real data lag computed from the
+/// most recent `last_update` across all stations. A synthetic `hit_rate` is
+/// intentionally omitted: the cache does not track hits/misses, so fabricating
+/// a number would be misleading.
 async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) -> Result<Value> {
     let uptime_seconds = start_time.elapsed().as_secs();
 
-    // Get real cache statistics
     let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
 
-    // Calculate hit rate based on cache usage (simplified)
-    let hit_rate = if total_entries > 0 {
-        0.75 + (total_entries as f64 / 2000.0) * 0.2
-    } else {
-        0.0
-    };
-
-    // Fetch stations to compute real lag from most recent station last_update timestamp
     let (realtime_status, reference_status, lag_seconds, most_recent_update) =
         match handler.get_complete_stations(true).await {
             Ok(stations) => {
@@ -625,7 +567,6 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
             }
         },
         "cache_stats": {
-            "hit_rate": hit_rate.min(1.0),
             "entries": total_entries,
             "reference_cache_size": reference_cache_size,
             "realtime_cache_size": realtime_cache_size

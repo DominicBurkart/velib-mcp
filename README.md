@@ -114,7 +114,23 @@ cargo test
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo audit
+cargo deny check licenses bans sources
 ```
+
+### Pre-commit hooks
+
+`cargo-husky` is installed as a dev-dependency and automatically installs a Git
+pre-commit hook the first time `cargo test` (or any cargo command that builds
+dev-dependencies) runs. The hook lives at `.cargo-husky/hooks/pre-commit` and
+enforces:
+
+- `cargo clippy --fix --all-features --all-targets`
+- `cargo fmt --all`
+- `cargo sort`
+- `cargo deny check licenses bans sources` (mirrors the `license-compliance` CI
+  job so license, bans, and source-provenance regressions are caught locally)
+
+Any non-zero exit aborts the commit.
 
 ### Podman
 
