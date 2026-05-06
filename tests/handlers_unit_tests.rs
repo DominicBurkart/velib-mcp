@@ -7,10 +7,7 @@
 
 use chrono::Utc;
 use velib_mcp::{
-    mcp::types::{
-        AvailabilityFilter, GeographicBounds, GetAreaStatisticsInput, SearchStationsByNameInput,
-        StationWithDistance,
-    },
+    mcp::types::{GeographicBounds, StationWithDistance},
     types::{
         BikeAvailability, BikeTypeFilter, Coordinates, DataFreshness, RealTimeStatus,
         ServiceCapabilities, StationReference, StationStatus, VelibStation,
@@ -116,8 +113,8 @@ fn coordinates_boundary_just_inside_paris_metro_box() {
 #[test]
 fn coordinates_boundary_just_outside_paris_metro_box() {
     let outside = [
-        Coordinates::new(48.6999, 2.3), // lat too low
-        Coordinates::new(49.0001, 2.3), // lat too high
+        Coordinates::new(48.6999, 2.3),  // lat too low
+        Coordinates::new(49.0001, 2.3),  // lat too high
         Coordinates::new(48.85, 1.9999), // lon too low
         Coordinates::new(48.85, 2.6001), // lon too high
     ];
@@ -313,8 +310,7 @@ fn filter_nearby(
     let mut nearby: Vec<StationWithDistance> = stations
         .into_iter()
         .filter_map(|station| {
-            let distance =
-                query_point.distance_to(&station.reference.coordinates) as u32;
+            let distance = query_point.distance_to(&station.reference.coordinates) as u32;
             if distance <= radius_meters {
                 let has_bikes = match bike_filter {
                     Some(bt) => station.has_available_bikes(bt),
@@ -342,11 +338,33 @@ fn find_nearby_stations_filters_by_radius() {
     // Place station A at ~100 m and station B at ~3 km from query point.
     // Only A should appear with a 500 m radius.
     let query = Coordinates::new(48.8566, 2.3522); // Paris centre
-    let close = make_station("CLOSE", "Close Station", 48.8570, 2.3528, 3, 2, 10, StationStatus::Open);
-    let far = make_station("FAR", "Far Station", 48.8800, 2.3700, 3, 2, 10, StationStatus::Open);
+    let close = make_station(
+        "CLOSE",
+        "Close Station",
+        48.8570,
+        2.3528,
+        3,
+        2,
+        10,
+        StationStatus::Open,
+    );
+    let far = make_station(
+        "FAR",
+        "Far Station",
+        48.8800,
+        2.3700,
+        3,
+        2,
+        10,
+        StationStatus::Open,
+    );
 
     let results = filter_nearby(vec![close, far], query, 500, None);
-    assert_eq!(results.len(), 1, "Only the close station should be within 500 m");
+    assert_eq!(
+        results.len(),
+        1,
+        "Only the close station should be within 500 m"
+    );
     assert_eq!(results[0].station.reference.station_code, "CLOSE");
 }
 
@@ -364,18 +382,41 @@ fn find_nearby_stations_returns_sorted_by_distance() {
     // Supply in reverse order to confirm sorting works.
     let results = filter_nearby(vec![s3, s1, s2], query, 1000, None);
     assert_eq!(results.len(), 3);
-    assert_eq!(results[0].station.reference.station_code, "S1", "Nearest first");
+    assert_eq!(
+        results[0].station.reference.station_code,
+        "S1",
+        "Nearest first"
+    );
     assert_eq!(results[1].station.reference.station_code, "S2");
-    assert_eq!(results[2].station.reference.station_code, "S3", "Furthest last");
+    assert_eq!(
+        results[2].station.reference.station_code,
+        "S3",
+        "Furthest last"
+    );
     // Verify distances are non-decreasing.
-    let dists: Vec<u32> = results.iter().map(|r| r.straight_line_distance_meters).collect();
-    assert!(dists.windows(2).all(|w| w[0] <= w[1]), "Distances should be non-decreasing");
+    let dists: Vec<u32> = results
+        .iter()
+        .map(|r| r.straight_line_distance_meters)
+        .collect();
+    assert!(
+        dists.windows(2).all(|w| w[0] <= w[1]),
+        "Distances should be non-decreasing"
+    );
 }
 
 #[test]
 fn find_nearby_stations_excludes_closed_stations() {
     let query = Coordinates::new(48.8566, 2.3522);
-    let open = make_station("OPEN", "Open Station", 48.8570, 2.3528, 3, 0, 10, StationStatus::Open);
+    let open = make_station(
+        "OPEN",
+        "Open Station",
+        48.8570,
+        2.3528,
+        3,
+        0,
+        10,
+        StationStatus::Open,
+    );
     let closed = make_station(
         "CLOSED",
         "Closed Station",
@@ -397,8 +438,26 @@ fn find_nearby_stations_excludes_closed_stations() {
 fn find_nearby_stations_bike_type_filter_mechanical_only() {
     let query = Coordinates::new(48.8566, 2.3522);
     // One station with mechanical bikes, one electric-only.
-    let mech = make_station("MECH", "Mechanical Station", 48.8570, 2.3528, 5, 0, 10, StationStatus::Open);
-    let elec = make_station("ELEC", "Electric Station", 48.8572, 2.3530, 0, 5, 10, StationStatus::Open);
+    let mech = make_station(
+        "MECH",
+        "Mechanical Station",
+        48.8570,
+        2.3528,
+        5,
+        0,
+        10,
+        StationStatus::Open,
+    );
+    let elec = make_station(
+        "ELEC",
+        "Electric Station",
+        48.8572,
+        2.3530,
+        0,
+        5,
+        10,
+        StationStatus::Open,
+    );
 
     let results = filter_nearby(
         vec![mech, elec],
@@ -450,8 +509,26 @@ fn area_statistics_empty_area_returns_zero_counts() {
         west: 2.351,
     };
     let stations = vec![
-        make_station("001", "Bastille", 48.8533, 2.3692, 3, 2, 10, StationStatus::Open),
-        make_station("002", "Nation", 48.8484, 2.3961, 1, 0, 15, StationStatus::Open),
+        make_station(
+            "001",
+            "Bastille",
+            48.8533,
+            2.3692,
+            3,
+            2,
+            10,
+            StationStatus::Open,
+        ),
+        make_station(
+            "002",
+            "Nation",
+            48.8484,
+            2.3961,
+            1,
+            0,
+            15,
+            StationStatus::Open,
+        ),
     ];
 
     let (total, operational, mech, elec, docks) = compute_area_stats(&stations, &bounds);
@@ -471,9 +548,36 @@ fn area_statistics_counts_only_stations_inside_bounds() {
         west: 2.340,
     };
     // Two stations inside, one outside.
-    let inside1 = make_station("IN1", "Inside One", 48.855, 2.360, 4, 2, 8, StationStatus::Open);
-    let inside2 = make_station("IN2", "Inside Two", 48.860, 2.350, 1, 3, 12, StationStatus::Open);
-    let outside = make_station("OUT", "Outside", 48.900, 2.400, 5, 5, 5, StationStatus::Open);
+    let inside1 = make_station(
+        "IN1",
+        "Inside One",
+        48.855,
+        2.360,
+        4,
+        2,
+        8,
+        StationStatus::Open,
+    );
+    let inside2 = make_station(
+        "IN2",
+        "Inside Two",
+        48.860,
+        2.350,
+        1,
+        3,
+        12,
+        StationStatus::Open,
+    );
+    let outside = make_station(
+        "OUT",
+        "Outside",
+        48.900,
+        2.400,
+        5,
+        5,
+        5,
+        StationStatus::Open,
+    );
 
     let (total, operational, mech, elec, docks) =
         compute_area_stats(&[inside1, inside2, outside], &bounds);
@@ -493,9 +597,26 @@ fn area_statistics_operational_count_excludes_closed() {
         west: 2.340,
     };
     let open = make_station("OPEN", "Open", 48.855, 2.360, 3, 1, 10, StationStatus::Open);
-    let closed = make_station("CLOSED", "Closed", 48.860, 2.355, 0, 0, 14, StationStatus::Closed);
-    let maintenance =
-        make_station("MAINT", "Maintenance", 48.862, 2.365, 0, 0, 14, StationStatus::Maintenance);
+    let closed = make_station(
+        "CLOSED",
+        "Closed",
+        48.860,
+        2.355,
+        0,
+        0,
+        14,
+        StationStatus::Closed,
+    );
+    let maintenance = make_station(
+        "MAINT",
+        "Maintenance",
+        48.862,
+        2.365,
+        0,
+        0,
+        14,
+        StationStatus::Maintenance,
+    );
 
     let (total, operational, ..) = compute_area_stats(&[open, closed, maintenance], &bounds);
     assert_eq!(total, 3, "All three stations are within bounds");
