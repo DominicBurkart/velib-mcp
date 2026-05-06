@@ -328,17 +328,21 @@ async fn test_health_endpoint_returns_real_metrics() {
 
     assert_eq!(json_response["status"], "healthy");
 
+    // Validate cache stats expose real sizes, not hardcoded or fabricated metrics.
     let cache_stats = &json_response["cache_stats"];
-    assert!(cache_stats["hit_rate"].is_number());
     assert!(cache_stats["entries"].is_number());
+    assert!(cache_stats["reference_cache_size"].is_number());
+    assert!(cache_stats["realtime_cache_size"].is_number());
+    // `hit_rate` was removed because the cache does not track hits/misses.
+    assert!(
+        cache_stats["hit_rate"].is_null(),
+        "hit_rate must not be synthesized"
+    );
 
     let data_sources = &json_response["data_sources"];
     assert!(data_sources["real_time"]["status"].is_string());
     assert!(data_sources["real_time"]["last_update"].is_string());
     assert!(data_sources["reference"]["status"].is_string());
-
-    let hit_rate = cache_stats["hit_rate"].as_f64().unwrap();
-    assert_ne!(hit_rate, 0.85, "Hit rate should not be hardcoded 0.85");
 }
 
 /// Test error handling when the data source is unavailable.
