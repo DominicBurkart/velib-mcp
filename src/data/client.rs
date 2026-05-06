@@ -423,4 +423,51 @@ mod tests {
         let record = json!({"is_installed": "OUI"});
         assert!(parse_realtime_status(&record).is_err());
     }
+
+    #[test]
+    fn parse_realtime_status_missing_duedate_falls_back_to_now() {
+        // duedate omission must not fail the row; `last_update` falls back to
+        // `Utc::now()` so the data still reaches consumers (with the freshness
+        // signal carried by `RealTimeStatus::data_freshness`).
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        let before = Utc::now();
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let after = Utc::now();
+        assert!(status.last_update >= before && status.last_update <= after);
+    }
+
+    #[test]
+    fn parse_realtime_status_unparseable_duedate_falls_back_to_now() {
+        // Same fallback applies when the upstream payload contains a
+        // syntactically invalid timestamp.
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "not-a-real-date",
+        });
+        let before = Utc::now();
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let after = Utc::now();
+        assert!(status.last_update >= before && status.last_update <= after);
+    }
+
+    #[test]
+    fn parse_realtime_status_missing_renting_flags_default_to_maintenance() {
+        // When `is_installed = OUI` but the renting/returning flags are absent,
+        // the unwrap_or("NON") path drives both to false and the station is
+        // classified as Maintenance (not Open, not Closed).
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.status, StationStatus::Maintenance);
+    }
 }

@@ -92,10 +92,13 @@ async fn tools_list_returns_all_five_tools() {
 }
 
 #[tokio::test]
-async fn search_stations_by_name_schema_limit_matches_handler_enforcement() {
-    // The advertised schema max must match the handler's `MAX_RESULT_LIMIT`
-    // (100). A drift here silently shrinks the tool's advertised capability
-    // and can be caught early by this regression test.
+async fn schema_limits_match_handler_enforcement() {
+    // The advertised schema maxima must match the constants the handler enforces
+    // (`MAX_RESULT_LIMIT = 100`, `MAX_SEARCH_RADIUS = 5000`). Drift here
+    // silently shrinks (or oversells) the tool's advertised capability and
+    // produces validation errors that schema-aware clients would have
+    // pre-empted. This regression test pins every numeric maximum advertised
+    // in `tools/list` to the constants the handler enforces.
     let (_, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -105,10 +108,24 @@ async fn search_stations_by_name_schema_limit_matches_handler_enforcement() {
     .await;
 
     let tools = body["result"]["tools"].as_array().unwrap();
-    let search = tools
-        .iter()
-        .find(|t| t["name"] == "search_stations_by_name")
-        .expect("schema includes search_stations_by_name");
+    let by_name = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("schema missing tool {name}"))
+    };
+
+    let find_nearby = by_name("find_nearby_stations");
+    assert_eq!(
+        find_nearby["inputSchema"]["properties"]["limit"]["maximum"],
+        100
+    );
+    assert_eq!(
+        find_nearby["inputSchema"]["properties"]["radius_meters"]["maximum"],
+        5000
+    );
+
+    let search = by_name("search_stations_by_name");
     assert_eq!(search["inputSchema"]["properties"]["limit"]["maximum"], 100);
 }
 
