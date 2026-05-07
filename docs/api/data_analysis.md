@@ -1,4 +1,4 @@
-# Analyse des Données Velib - Phase 1
+# Analyse des Données Velib
 
 ## Vue d'ensemble
 
