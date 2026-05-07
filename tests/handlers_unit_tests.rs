@@ -92,14 +92,14 @@ fn coordinates_outside_paris_fails_validation() {
 
 #[test]
 fn coordinates_boundary_just_inside_paris_metro_box() {
-    // The is_valid_paris_metro check uses an inclusive bounding box:
-    //   lat in [48.7, 49.0], lon in [2.0, 2.6]
-    // Test each corner of the box.
+    // is_valid_paris_metro uses an inclusive bounding box:
+    //   lat in [47.0, 50.5], lon in [0.0, 5.0]
+    // Test each corner of the actual box.
     let corners = [
-        Coordinates::new(48.7, 2.0),
-        Coordinates::new(48.7, 2.6),
-        Coordinates::new(49.0, 2.0),
-        Coordinates::new(49.0, 2.6),
+        Coordinates::new(47.0, 0.0),
+        Coordinates::new(47.0, 5.0),
+        Coordinates::new(50.5, 0.0),
+        Coordinates::new(50.5, 5.0),
     ];
     for c in &corners {
         assert!(
@@ -112,11 +112,12 @@ fn coordinates_boundary_just_inside_paris_metro_box() {
 
 #[test]
 fn coordinates_boundary_just_outside_paris_metro_box() {
+    // Points just outside each edge of the [47.0, 50.5] / [0.0, 5.0] box.
     let outside = [
-        Coordinates::new(48.6999, 2.3),  // lat too low
-        Coordinates::new(49.0001, 2.3),  // lat too high
-        Coordinates::new(48.85, 1.9999), // lon too low
-        Coordinates::new(48.85, 2.6001), // lon too high
+        Coordinates::new(46.9999, 2.3), // lat too low
+        Coordinates::new(50.5001, 2.3), // lat too high
+        Coordinates::new(48.85, -0.0001), // lon too low
+        Coordinates::new(48.85, 5.0001), // lon too high
     ];
     for c in &outside {
         assert!(
@@ -301,6 +302,7 @@ fn search_by_name_no_match_returns_empty() {
 // ---------------------------------------------------------------------------
 
 /// Replicate the nearby-station filter+sort from the handler.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn filter_nearby(
     stations: Vec<VelibStation>,
     query_point: Coordinates,
