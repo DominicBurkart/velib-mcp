@@ -80,48 +80,24 @@ impl Default for RetryConfig {
     }
 }
 
-/// Strategy for calculating retry delays
-#[derive(Debug, Clone)]
-pub enum RetryStrategy {
-    /// Exponential backoff with optional jitter
-    ExponentialBackoff {
-        /// Base delay in seconds
-        base_delay: u64,
-        /// Maximum delay in seconds
-        max_delay: u64,
-        /// Whether to add jitter (up to 25% of calculated delay)
-        use_jitter: bool,
-    },
-    /// Fixed delay between retries
-    FixedDelay {
-        /// Delay in seconds
-        delay: u64,
-    },
-}
+/// Calculate the exponential-backoff delay for a given (0-based) attempt
+/// number, respecting the policy's `base_delay`, `max_delay`, and jitter
+/// settings.
+fn exponential_backoff_delay(
+    attempt: u32,
+    base_delay: u64,
+    max_delay: u64,
+    use_jitter: bool,
+) -> Duration {
+    let delay = base_delay.saturating_mul(2_u64.saturating_pow(attempt));
+    let delay = delay.min(max_delay);
 
-impl RetryStrategy {
-    /// Calculate delay for a given attempt number (0-based)
-    #[must_use]
-    pub fn calculate_delay(&self, attempt: u32) -> Duration {
-        match self {
-            RetryStrategy::ExponentialBackoff {
-                base_delay,
-                max_delay,
-                use_jitter,
-            } => {
-                let delay = base_delay * 2_u64.pow(attempt);
-                let delay = delay.min(*max_delay);
-
-                if *use_jitter {
-                    // Add jitter up to 25% of delay
-                    let jitter = (delay as f64 * 0.25 * fastrand::f64()).round() as u64;
-                    Duration::from_secs(delay + jitter)
-                } else {
-                    Duration::from_secs(delay)
-                }
-            }
-            RetryStrategy::FixedDelay { delay } => Duration::from_secs(*delay),
-        }
+    if use_jitter {
+        // Add jitter up to 25% of delay
+        let jitter = (delay as f64 * 0.25 * fastrand::f64()).round() as u64;
+        Duration::from_secs(delay + jitter)
+    } else {
+        Duration::from_secs(delay)
     }
 }
 
@@ -129,7 +105,6 @@ impl RetryStrategy {
 #[derive(Debug)]
 pub struct RetryPolicy {
     config: RetryConfig,
-    strategy: RetryStrategy,
 }
 
 impl RetryPolicy {
@@ -142,13 +117,7 @@ impl RetryPolicy {
     /// Create a new retry policy with custom configuration
     #[must_use]
     pub fn with_config(config: RetryConfig) -> Self {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: config.base_delay_seconds,
-            max_delay: config.max_delay_seconds,
-            use_jitter: config.use_jitter,
-        };
-
-        Self { config, strategy }
+        Self { config }
     }
 
     /// Execute a closure with retry logic
@@ -192,7 +161,12 @@ impl RetryPolicy {
                         }
                     }
 
-                    let delay = self.strategy.calculate_delay(attempt);
+                    let delay = exponential_backoff_delay(
+                        attempt,
+                        self.config.base_delay_seconds,
+                        self.config.max_delay_seconds,
+                        self.config.use_jitter,
+                    );
                     warn!(
                         "Attempt {} failed, retrying in {:.2}s: {}",
                         attempt + 1,
@@ -240,8 +214,9 @@ impl Default for RetryPolicy {
     }
 }
 
-/// Helper function to extract retry-after header from reqwest error
-pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
+/// Extract the `retry-after` header value (in seconds) from an HTTP response,
+/// if present and parseable. Used internally to populate `Error::RateLimited`.
+fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
     response
         .headers()
         .get("retry-after")
@@ -249,8 +224,9 @@ pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option
         .and_then(|s| s.parse::<u64>().ok())
 }
 
-/// Helper function to create rate limited error from HTTP response
-pub fn create_rate_limited_error(response: &reqwest::Response) -> Error {
+/// Construct a `RateLimited` error from a 429 response, copying the
+/// `retry-after` hint when available.
+fn create_rate_limited_error(response: &reqwest::Response) -> Error {
     let retry_after = extract_retry_after_from_response(response);
     Error::RateLimited {
         retry_after_seconds: retry_after,
@@ -361,39 +337,34 @@ mod tests {
 
     #[test]
     fn test_exponential_backoff_calculation() {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: 1,
-            max_delay: 10,
-            use_jitter: false,
-        };
-
-        assert_eq!(strategy.calculate_delay(0), Duration::from_secs(1));
-        assert_eq!(strategy.calculate_delay(1), Duration::from_secs(2));
-        assert_eq!(strategy.calculate_delay(2), Duration::from_secs(4));
-        assert_eq!(strategy.calculate_delay(3), Duration::from_secs(8));
-        assert_eq!(strategy.calculate_delay(4), Duration::from_secs(10)); // Capped at max_delay
-    }
-
-    #[test]
-    fn test_fixed_delay_calculation() {
-        let strategy = RetryStrategy::FixedDelay { delay: 5 };
-
-        assert_eq!(strategy.calculate_delay(0), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(1), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(2), Duration::from_secs(5));
+        assert_eq!(
+            exponential_backoff_delay(0, 1, 10, false),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            exponential_backoff_delay(1, 1, 10, false),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            exponential_backoff_delay(2, 1, 10, false),
+            Duration::from_secs(4)
+        );
+        assert_eq!(
+            exponential_backoff_delay(3, 1, 10, false),
+            Duration::from_secs(8)
+        );
+        // Capped at max_delay
+        assert_eq!(
+            exponential_backoff_delay(4, 1, 10, false),
+            Duration::from_secs(10)
+        );
     }
 
     #[test]
     fn test_exponential_backoff_with_jitter() {
-        let strategy = RetryStrategy::ExponentialBackoff {
-            base_delay: 1,
-            max_delay: 10,
-            use_jitter: true,
-        };
-
-        // Test that jitter produces different results
-        let delay1 = strategy.calculate_delay(2);
-        let delay2 = strategy.calculate_delay(2);
+        // Test that jitter produces results within the expected band
+        let delay1 = exponential_backoff_delay(2, 1, 10, true);
+        let delay2 = exponential_backoff_delay(2, 1, 10, true);
 
         // Base delay should be 4 seconds
         assert!(delay1 >= Duration::from_secs(4));
