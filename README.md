@@ -14,9 +14,10 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 Install and use the Velib MCP server with Claude Code in one command:
 
 ```bash
-# Install and configure the server
+# Install the server binary
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+# Register it with Claude Code
+claude mcp add velib-mcp -- velib-mcp
 ```
 
 Then use in Claude Code:
