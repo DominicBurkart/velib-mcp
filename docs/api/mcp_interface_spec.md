@@ -19,20 +19,13 @@ Ce document définit les interfaces MCP (Model Context Protocol) exposées par l
 
 ## Resources MCP
 
+Toutes les resources renvoient `application/json`. Voir
+[`src/mcp/server.rs`](../../src/mcp/server.rs) pour le routage.
+
 ### 1. Stations de Référence
 
-#### Resource URI
-```
-velib://stations/reference
-```
-
-#### Description
-Catalogue complet des stations Velib avec leurs métadonnées statiques.
-
-#### Content Type
-```
-application/json
-```
+URI : `velib://stations/reference` — catalogue complet des stations Velib
+avec leurs métadonnées statiques.
 
 #### Exemple de Contenu
 ```json
@@ -58,18 +51,8 @@ application/json
 
 ### 2. Disponibilité Temps Réel
 
-#### Resource URI
-```
-velib://stations/realtime
-```
-
-#### Description
-État actuel de toutes les stations avec disponibilité des vélos et emplacements.
-
-#### Content Type
-```
-application/json
-```
+URI : `velib://stations/realtime` — état actuel de toutes les stations
+avec disponibilité des vélos et emplacements.
 
 #### Exemple de Contenu
 ```json
@@ -100,30 +83,18 @@ application/json
 
 ### 3. Stations Consolidées
 
-#### Resource URI
-```
-velib://stations/complete
-```
-
-#### Description
-Vue complète combinant données de référence et temps réel.
-
-#### Content Type
-```
-application/json
-```
+URI : `velib://stations/complete` — vue complète combinant données de
+référence et temps réel.
 
 ## Tools MCP
 
+Les handlers sont implémentés dans
+[`src/mcp/handlers.rs`](../../src/mcp/handlers.rs).
+
 ### 1. Recherche de Stations Proches
 
-#### Tool Name
-```
-find_nearby_stations
-```
-
-#### Description
-Trouve les stations Velib dans un rayon donné autour d'un point.
+Tool : [`find_nearby_stations`](../../src/mcp/handlers.rs#L153) — trouve
+les stations Velib dans un rayon donné autour d'un point.
 
 #### Input Schema
 ```json
@@ -231,13 +202,8 @@ Trouve les stations Velib dans un rayon donné autour d'un point.
 
 ### 2. Obtenir Station par Code
 
-#### Tool Name
-```
-get_station_by_code
-```
-
-#### Description
-Récupère les informations complètes d'une station spécifique.
+Tool : [`get_station_by_code`](../../src/mcp/handlers.rs#L212) —
+récupère les informations complètes d'une station spécifique.
 
 #### Input Schema
 ```json
@@ -277,13 +243,8 @@ Récupère les informations complètes d'une station spécifique.
 
 ### 3. Recherche par Nom de Station
 
-#### Tool Name
-```
-search_stations_by_name
-```
-
-#### Description
-Recherche textuelle dans les noms de stations.
+Tool : [`search_stations_by_name`](../../src/mcp/handlers.rs#L227) —
+recherche textuelle dans les noms de stations.
 
 #### Input Schema
 ```json
@@ -314,13 +275,8 @@ Recherche textuelle dans les noms de stations.
 
 ### 4. Statistiques de Zone
 
-#### Tool Name
-```
-get_area_statistics
-```
-
-#### Description
-Calcule des statistiques agrégées pour une zone géographique.
+Tool : [`get_area_statistics`](../../src/mcp/handlers.rs#L286) —
+calcule des statistiques agrégées pour une zone géographique.
 
 #### Input Schema
 ```json
@@ -381,13 +337,8 @@ Calcule des statistiques agrégées pour une zone géographique.
 
 ### 5. Itinéraire avec Vélos
 
-#### Tool Name
-```
-plan_bike_journey
-```
-
-#### Description
-Planifie un trajet en suggérant stations de départ et d'arrivée.
+Tool : [`plan_bike_journey`](../../src/mcp/handlers.rs#L303) — planifie
+un trajet en suggérant stations de départ et d'arrivée.
 
 #### Input Schema
 ```json
@@ -471,51 +422,37 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
 
 ## Gestion des Erreurs
 
-### Codes d'Erreur Standard
+Les codes JSON-RPC suivent le mapping défini dans
+[`Error::mcp_error_code`](../../src/error.rs#L49). Exemple :
+
 ```json
 {
   "error": {
-    "code": -32001,
-    "message": "Station not found",
+    "code": -32600,
+    "message": "Station not found: 99999",
     "data": {
       "station_code": "99999",
-      "error_type": "STATION_NOT_FOUND"
+      "error_type": "station_not_found"
     }
   }
 }
 ```
 
-### Types d'Erreurs
-- `-32001` : Station non trouvée
-- `-32002` : Coordonnées invalides  
-- `-32003` : Données temps réel indisponibles
-- `-32004` : Rayon de recherche trop large
-- `-32005` : Limite de résultats dépassée
+### Mapping des codes
+- `-32700` : erreur de parsing JSON
+- `-32600` : requête invalide (`StationNotFound`)
+- `-32602` : paramètres invalides (`InvalidCoordinates`,
+  `OutsideServiceArea`, `SearchRadiusTooLarge`, `ResultLimitExceeded`,
+  `Validation`)
+- `-32603` : erreur interne (`McpProtocol`, `Cache`, `Internal`)
+- `-32001` : erreur serveur (`Http`, `RateLimited`)
 
-## Rate Limiting
+## Authentification et Rate Limiting
 
-### Limites par Défaut
-- **Resources** : 60 requêtes/minute
-- **Tools** : 100 requêtes/minute
-- **Burst** : 10 requêtes/seconde
-
-### Headers de Réponse
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
-```
-
-## Authentification
-
-### Mode Public
-- Aucune authentification requise
-- Rate limiting appliqué par IP
-
-### Mode API Key (Futur)
-```http
-Authorization: Bearer <api_key>
-```
+Non implémentés à ce jour : aucune authentification n'est requise et
+aucun en-tête `X-RateLimit-*` n'est émis. Le client API amont
+(`opendata.paris.fr`) peut renvoyer un HTTP 429 ; ce cas remonte sous
+forme de `Error::RateLimited`.
 
 ## Métadonnées de Santé
 

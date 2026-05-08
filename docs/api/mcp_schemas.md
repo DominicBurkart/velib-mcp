@@ -134,16 +134,16 @@ pub struct VelibStation {
     pub data_freshness: DataFreshness,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+// Définition réelle dans `src/types.rs` :
+// `Fresh` (< 10 min), `Recent` (10-30 min), `Stale` (30-120 min),
+// `VeryStale` (> 120 min). Voir
+// [`DataFreshness::from_age`](../../src/types.rs#L146).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum DataFreshness {
-    /// Données très récentes (< 2 minutes)
     Fresh,
-    /// Données acceptables (< 5 minutes)
-    Acceptable,
-    /// Données anciennes (> 5 minutes)
+    Recent,
     Stale,
-    /// Données indisponibles
-    Unavailable,
+    VeryStale,
 }
 ```
 

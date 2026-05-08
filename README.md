@@ -11,12 +11,13 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 
 ## Quick Start - Install with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
+Install the binary and register it with Claude Code:
 
 ```bash
-# Install and configure the server
+# Install the server (provides the `velib-mcp` binary)
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+# Register with Claude Code (default port 8080; override with PORT env var)
+claude mcp add velib-mcp velib-mcp
 ```
 
 Then use in Claude Code:
@@ -50,44 +51,32 @@ This project exposes two key Parisian datasets through MCP:
 <details>
 <summary>Click to expand integration guides</summary>
 
-### ChatGPT
+All clients run the same `velib-mcp` binary, which listens on `0.0.0.0:8080`
+by default (override with the `PORT` environment variable; no CLI flags).
+
 ```bash
-# Install server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
+PORT=8080 velib-mcp
 ```
 
+### ChatGPT
+Configure in ChatGPT Custom Instructions or use via API.
+
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+Add to Cursor's `settings.json`:
+```json
 {
   "mcp.servers": {
-    "velib": {
-      "command": "velib-mcp",
-      "args": ["--port", "8080"]
-    }
+    "velib": { "command": "velib-mcp" }
   }
 }
 ```
 
 ### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
-```
+Run `velib-mcp` and use via API calls.
 
 ### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+Configure in Windsurf MCP settings.
 
 </details>
 
@@ -132,14 +121,17 @@ enforces:
 
 Any non-zero exit aborts the commit.
 
-### Podman
+### Container image
+
+The container image is produced by the Nix flake (no Dockerfile):
 
 ```bash
-# Build container image
-podman build -t velib-mcp .
+# Build the image and load into Podman/Docker
+nix build .#container
+podman load < result    # or: docker load -i result
 
-# Run container
-podman run -p 8080:8080 velib-mcp
+# Run
+podman run -p 8080:8080 velib-mcp:latest
 ```
 
 ## Deployment
