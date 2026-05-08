@@ -1,5 +1,7 @@
-use std::time::Duration as StdDuration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use tokio::sync::RwLock;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::data::VelibDataClient;
@@ -12,9 +14,6 @@ use crate::mcp::types::{
 };
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use crate::{Error, Result};
-use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
@@ -45,8 +44,7 @@ impl McpToolHandler {
         // being dropped when the handler is no longer used.
         let weak = Arc::downgrade(&data_client);
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(StdDuration::from_secs(5 * 60));
+            let mut interval = tokio::time::interval(Duration::from_secs(5 * 60));
             interval.tick().await; // skip the immediate first tick
             loop {
                 interval.tick().await;
@@ -399,7 +397,8 @@ impl McpToolHandler {
             let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
             let dropoff_walk_ratio =
                 f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
-            let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
+            let confidence_score =
+                1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
 
             recommendations.push(JourneyRecommendation {
                 pickup_station: best_pickup.station.clone(),
