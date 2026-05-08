@@ -161,7 +161,9 @@ impl RetryPolicy {
 
         debug!(
             "Starting operation with retry policy: max_attempts={}, base_delay={}s, max_delay={}s",
-            self.config.max_attempts, self.config.base_delay_seconds, self.config.max_delay_seconds
+            self.config.max_attempts,
+            self.config.base_delay_seconds,
+            self.config.max_delay_seconds
         );
 
         for attempt in 0..=self.config.max_attempts {
@@ -298,13 +300,9 @@ impl RetryableHttpClient {
                 // Check for rate limiting
                 if response.status() == 429 {
                     let retry_after = extract_retry_after_from_response(&response);
-                    warn!(
-                        "Rate limited (429) for {}{}",
-                        url,
-                        retry_after.map_or_else(String::new, |seconds| format!(
-                            ", retry after {seconds}s"
-                        ))
-                    );
+                    let suffix = retry_after
+                        .map_or_else(String::new, |seconds| format!(", retry after {seconds}s"));
+                    warn!("Rate limited (429) for {}{}", url, suffix);
                     return Err(create_rate_limited_error(&response));
                 }
 

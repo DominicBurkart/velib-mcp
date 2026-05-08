@@ -1,5 +1,4 @@
-use crate::types::{BikeTypeFilter, Coordinates, DataSource, VelibStation};
-use chrono::{DateTime, Utc};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
