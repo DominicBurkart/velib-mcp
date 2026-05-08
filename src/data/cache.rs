@@ -92,8 +92,7 @@ mod tests {
 
     #[tokio::test]
     async fn insert_and_get_returns_value() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
         cache.insert("key1".to_string(), "hello".to_string()).await;
         let result = cache.get(&"key1".to_string()).await;
         assert_eq!(result, Some("hello".to_string()));
@@ -101,8 +100,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_entry_returns_none() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
         // Insert with a 1ms TTL
         cache
             .insert_with_ttl(
@@ -119,8 +117,7 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_removes_expired() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::minutes(5));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
         cache
             .insert_with_ttl(
                 "stale".to_string(),
@@ -135,8 +132,7 @@ mod tests {
 
     #[tokio::test]
     async fn clear_empties_cache() {
-        let cache: InMemoryCache<String, i32> =
-            InMemoryCache::new(Duration::minutes(5));
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::minutes(5));
         cache.insert("a".to_string(), 1).await;
         cache.insert("b".to_string(), 2).await;
         cache.insert("c".to_string(), 3).await;
@@ -147,8 +143,7 @@ mod tests {
 
     #[tokio::test]
     async fn size_reflects_inserts() {
-        let cache: InMemoryCache<u32, &str> =
-            InMemoryCache::new(Duration::minutes(5));
+        let cache: InMemoryCache<u32, &str> = InMemoryCache::new(Duration::minutes(5));
         for i in 0..7u32 {
             cache.insert(i, "v").await;
         }
