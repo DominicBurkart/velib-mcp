@@ -66,6 +66,51 @@ impl VelibDataClient {
         }
     }
 
+    /// Fetch all pages of records from a Paris Open Data dataset endpoint,
+    /// folding each parsed record into `acc` via `fold`.
+    ///
+    /// Stops on either an empty `results` array or a short page. Records that
+    /// fail to parse are skipped (matches the original per-endpoint loops,
+    /// which used `if let Ok(...)` to tolerate occasional bad rows from the
+    /// upstream API).
+    async fn fetch_all_pages<T, F>(&self, url: &str, mut acc: T, mut fold: F) -> Result<T>
+    where
+        F: FnMut(&mut T, &Value),
+    {
+        const PAGE_LIMIT: usize = 100;
+        let mut offset = 0usize;
+
+        loop {
+            let limit_str = PAGE_LIMIT.to_string();
+            let offset_str = offset.to_string();
+            let response = self
+                .client
+                .get_with_query(url, &[("limit", &limit_str), ("offset", &offset_str)])
+                .await?;
+
+            let json: Value = response.json().await?;
+            let records = json["results"]
+                .as_array()
+                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+
+            if records.is_empty() {
+                break;
+            }
+
+            let page_len = records.len();
+            for record in records {
+                fold(&mut acc, record);
+            }
+
+            if page_len < PAGE_LIMIT {
+                break;
+            }
+            offset += PAGE_LIMIT;
+        }
+
+        Ok(acc)
+    }
+
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
         const CACHE_KEY: &str = "all_reference_stations";
@@ -78,41 +123,13 @@ impl VelibDataClient {
 
         info!("Fetching reference stations from Paris Open Data API");
 
-        let mut all_stations = Vec::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_STATIONS_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
+        let all_stations = self
+            .fetch_all_pages(VELIB_STATIONS_URL, Vec::new(), |acc, record| {
                 if let Ok(station) = parse_reference_station(record) {
-                    all_stations.push(station);
+                    acc.push(station);
                 }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
+            })
+            .await?;
 
         info!("Fetched {} reference stations", all_stations.len());
 
@@ -136,41 +153,13 @@ impl VelibDataClient {
 
         info!("Fetching real-time status from Paris Open Data API");
 
-        let mut all_status = HashMap::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_REALTIME_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
-            }
-
-            for record in records {
+        let all_status = self
+            .fetch_all_pages(VELIB_REALTIME_URL, HashMap::new(), |acc, record| {
                 if let Ok((station_code, status)) = parse_realtime_status(record) {
-                    all_status.insert(station_code, status);
+                    acc.insert(station_code, status);
                 }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
+            })
+            .await?;
 
         info!("Fetched real-time status for {} stations", all_status.len());
 
