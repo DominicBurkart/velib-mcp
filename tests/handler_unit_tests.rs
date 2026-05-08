@@ -484,8 +484,7 @@ async fn test_get_area_statistics_totals_and_occupancy() {
         StationStatus::Open,
     );
 
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![a, b, outside]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![a, b, outside]).await);
 
     let output = handler
         .get_area_statistics(GetAreaStatisticsInput {
@@ -568,8 +567,7 @@ async fn test_get_area_statistics_closed_station_excluded_from_operational() {
         StationStatus::Closed,
     );
 
-    let handler =
-        McpToolHandler::with_data_client(client_with_stations(vec![open, closed]).await);
+    let handler = McpToolHandler::with_data_client(client_with_stations(vec![open, closed]).await);
 
     let output = handler
         .get_area_statistics(GetAreaStatisticsInput {
