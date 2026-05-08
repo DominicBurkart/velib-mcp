@@ -423,4 +423,256 @@ mod tests {
         let record = json!({"is_installed": "OUI"});
         assert!(parse_realtime_status(&record).is_err());
     }
+
+    // --- duedate parsing ---
+    //
+    // The `duedate` field drives `RealTimeStatus::last_update`, which in turn
+    // determines `data_freshness`. The parser must:
+    //   1. Accept RFC3339 timestamps and preserve their instant in UTC.
+    //   2. Normalize non-UTC offsets to UTC.
+    //   3. Fall back to "now" when `duedate` is missing or malformed, so a
+    //      single bad row doesn't break the whole batch.
+    //   4. Produce a `data_freshness` consistent with the parsed timestamp.
+
+    #[test]
+    fn parse_realtime_status_preserves_utc_duedate() {
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2026-04-23T10:00:00+00:00"
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let expected = DateTime::parse_from_rfc3339("2026-04-23T10:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(status.last_update, expected);
+    }
+
+    #[test]
+    fn parse_realtime_status_normalizes_non_utc_offset_to_utc() {
+        // 12:00 in +02:00 is 10:00 UTC. The parsed `last_update` must be the
+        // same instant, expressed in UTC, regardless of the wire offset.
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2026-04-23T12:00:00+02:00"
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let expected = DateTime::parse_from_rfc3339("2026-04-23T10:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(status.last_update, expected);
+    }
+
+    #[test]
+    fn parse_realtime_status_missing_duedate_falls_back_to_now() {
+        // No `duedate` -> last_update should be ~now, not an error and not the
+        // unix epoch. We allow generous slack to keep this test non-flaky on
+        // slow CI.
+        let before = Utc::now();
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let after = Utc::now();
+        assert!(
+            status.last_update >= before - chrono::Duration::seconds(1)
+                && status.last_update <= after + chrono::Duration::seconds(1),
+            "last_update {:?} not within [{:?}, {:?}]",
+            status.last_update,
+            before,
+            after
+        );
+    }
+
+    #[test]
+    fn parse_realtime_status_malformed_duedate_falls_back_to_now() {
+        // Non-RFC3339 strings should not surface as errors. The fallback path
+        // must succeed and produce a "now" timestamp so a single corrupt row
+        // doesn't poison the whole batch.
+        let cases = [
+            "not-a-date",
+            "2026-04-23",           // date without time
+            "2026/04/23 10:00:00",  // wrong separator
+            "23-04-2026T10:00:00Z", // dd-mm-yyyy
+            "",                     // empty
+        ];
+        for duedate in cases {
+            let before = Utc::now();
+            let record = json!({
+                "stationcode": "1",
+                "is_installed": "OUI",
+                "is_renting": "OUI",
+                "is_returning": "OUI",
+                "duedate": duedate,
+            });
+            let (_, status) = parse_realtime_status(&record)
+                .unwrap_or_else(|e| panic!("malformed duedate {duedate:?} should not error: {e}"));
+            let after = Utc::now();
+            assert!(
+                status.last_update >= before - chrono::Duration::seconds(1)
+                    && status.last_update <= after + chrono::Duration::seconds(1),
+                "malformed duedate {duedate:?} produced last_update {:?}, expected ~now",
+                status.last_update
+            );
+        }
+    }
+
+    #[test]
+    fn parse_realtime_status_non_string_duedate_falls_back_to_now() {
+        // `as_str()` returns None for non-string values; the fallback must
+        // still kick in instead of panicking or erroring.
+        let before = Utc::now();
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": 1_700_000_000,
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        let after = Utc::now();
+        assert!(
+            status.last_update >= before - chrono::Duration::seconds(1)
+                && status.last_update <= after + chrono::Duration::seconds(1)
+        );
+    }
+
+    #[test]
+    fn parse_realtime_status_old_duedate_yields_stale_freshness() {
+        // A duedate well in the past must surface as a stale-or-worse
+        // `data_freshness` so downstream consumers can warn the user. We use
+        // a 6-hour-old timestamp -- past the 120-minute `VeryStale` boundary.
+        let six_hours_ago = Utc::now() - chrono::Duration::hours(6);
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": six_hours_ago.to_rfc3339(),
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(
+            status.data_freshness,
+            crate::types::DataFreshness::VeryStale
+        );
+    }
+
+    #[test]
+    fn parse_realtime_status_recent_duedate_yields_fresh_freshness() {
+        // A duedate just a few seconds old must classify as Fresh.
+        let just_now = Utc::now() - chrono::Duration::seconds(5);
+        let record = json!({
+            "stationcode": "1",
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": just_now.to_rfc3339(),
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.data_freshness, crate::types::DataFreshness::Fresh);
+    }
+
+    // --- type-mismatch handling for parse_reference_station ---
+    //
+    // Existing tests cover *missing* fields. These cover *wrong-typed* fields,
+    // which the upstream API can produce when an operator pushes corrupt
+    // metadata (e.g., `capacity` arriving as the string "35" rather than an
+    // integer). Each case must surface as Err rather than panic.
+
+    #[test]
+    fn parse_reference_station_rejects_string_capacity() {
+        let record = json!({
+            "stationcode": "1",
+            "name": "x",
+            "capacity": "35",
+            "coordonnees_geo": {"lat": 48.85, "lon": 2.35}
+        });
+        assert!(parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn parse_reference_station_rejects_non_object_geo() {
+        let record = json!({
+            "stationcode": "1",
+            "name": "x",
+            "capacity": 35,
+            "coordonnees_geo": "48.85,2.35"
+        });
+        assert!(parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn parse_reference_station_rejects_string_coordinates() {
+        let record = json!({
+            "stationcode": "1",
+            "name": "x",
+            "capacity": 35,
+            "coordonnees_geo": {"lat": "48.85", "lon": "2.35"}
+        });
+        assert!(parse_reference_station(&record).is_err());
+    }
+
+    #[test]
+    fn parse_reference_station_rejects_numeric_station_code() {
+        // The upstream payload uses string codes like "16107"; a numeric
+        // `stationcode` must be rejected rather than coerced.
+        let record = json!({
+            "stationcode": 16107,
+            "name": "x",
+            "capacity": 35,
+            "coordonnees_geo": {"lat": 48.85, "lon": 2.35}
+        });
+        assert!(parse_reference_station(&record).is_err());
+    }
+
+    // --- saturating field truncation in parse_realtime_status ---
+    //
+    // The parser converts u64 JSON values to u16 via `as u16`, which silently
+    // wraps. Ensure realistic upstream values (always <= a few thousand)
+    // round-trip correctly, and pin down the conversion behavior so a future
+    // refactor to `try_into` doesn't break callers without warning.
+
+    #[test]
+    fn parse_realtime_status_preserves_in_range_counts() {
+        let record = json!({
+            "stationcode": "1",
+            "mechanical": 30,
+            "ebike": 25,
+            "numdocksavailable": 100,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.bikes.mechanical, 30);
+        assert_eq!(status.bikes.electric, 25);
+        assert_eq!(status.available_docks, 100);
+    }
+
+    #[test]
+    fn parse_realtime_status_negative_counts_treated_as_zero() {
+        // `as_u64()` returns None for negative integers, so they fall through
+        // to the `unwrap_or(0)` branch -- documented permissive behavior.
+        let record = json!({
+            "stationcode": "1",
+            "mechanical": -5,
+            "ebike": -1,
+            "numdocksavailable": -3,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        let (_, status) = parse_realtime_status(&record).expect("parses");
+        assert_eq!(status.bikes.mechanical, 0);
+        assert_eq!(status.bikes.electric, 0);
+        assert_eq!(status.available_docks, 0);
+    }
 }
