@@ -4,13 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_bikes: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub min_docks: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub bike_type: Option<BikeTypeFilter>,
-    #[serde(default = "default_true")]
-    pub exclude_out_of_service: bool,
 }
 
 fn default_true() -> bool {
