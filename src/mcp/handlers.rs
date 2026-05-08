@@ -45,8 +45,7 @@ impl McpToolHandler {
         // being dropped when the handler is no longer used.
         let weak = Arc::downgrade(&data_client);
         tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(StdDuration::from_secs(5 * 60));
+            let mut interval = tokio::time::interval(StdDuration::from_secs(5 * 60));
             interval.tick().await; // skip the immediate first tick
             loop {
                 interval.tick().await;

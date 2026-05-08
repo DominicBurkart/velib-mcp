@@ -91,8 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_insert_and_retrieve() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::seconds(60));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::seconds(60));
         cache.insert("key".to_string(), "value".to_string()).await;
         let result = cache.get(&"key".to_string()).await;
         assert_eq!(result, Some("value".to_string()));
@@ -107,8 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_value_expires_after_ttl() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::milliseconds(100));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::milliseconds(100));
         cache.insert("key".to_string(), "hello".to_string()).await;
 
         // Value should be present immediately
@@ -124,13 +122,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_cleanup_removes_expired_entries() {
-        let cache: InMemoryCache<String, String> =
-            InMemoryCache::new(Duration::milliseconds(100));
+        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::milliseconds(100));
 
         cache.insert("expired".to_string(), "old".to_string()).await;
         // Insert a second entry with a longer TTL
         cache
-            .insert_with_ttl("fresh".to_string(), "new".to_string(), Duration::seconds(60))
+            .insert_with_ttl(
+                "fresh".to_string(),
+                "new".to_string(),
+                Duration::seconds(60),
+            )
             .await;
 
         // Wait for the short-TTL entry to expire
@@ -140,7 +141,11 @@ mod tests {
 
         cache.cleanup_expired().await;
 
-        assert_eq!(cache.size().await, 1, "expired entry should have been removed");
+        assert_eq!(
+            cache.size().await,
+            1,
+            "expired entry should have been removed"
+        );
         assert_eq!(
             cache.get(&"fresh".to_string()).await,
             Some("new".to_string()),

@@ -496,7 +496,11 @@ mod tests {
             .iter()
             .filter_map(|s| {
                 let d = query.distance_to(&s.reference.coordinates) as u32;
-                if d <= radius_meters { Some(d) } else { None }
+                if d <= radius_meters {
+                    Some(d)
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -525,10 +529,18 @@ mod tests {
         let stations = vec![close, medium, far];
 
         let within_500m = filter_stations_by_radius(&stations, &query, 500);
-        assert_eq!(within_500m.len(), 1, "only the co-located station should be within 500 m");
+        assert_eq!(
+            within_500m.len(),
+            1,
+            "only the co-located station should be within 500 m"
+        );
 
         let within_2000m = filter_stations_by_radius(&stations, &query, 2000);
-        assert_eq!(within_2000m.len(), 2, "close and medium should be within 2 km");
+        assert_eq!(
+            within_2000m.len(),
+            2,
+            "close and medium should be within 2 km"
+        );
     }
 }
 
