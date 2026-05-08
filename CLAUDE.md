@@ -38,31 +38,23 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 
 ## État Actuel du Projet
 
-### Phases Terminées ✅
-- **Phase 0** : Configuration projet, CI/CD, structure documentation
-- **Phase 1** : Analyse complète des données Velib (15+ champs documentés)
-- **Phase 2A** : Configuration environnement et fondation serveur de base
-- **Phase 2B** : Fondation protocole MCP et types de base
-- **Phase 3A** : Intégration API live et client de données
-- **Phase 3B** : Handlers MCP complets avec intégration données live
-- **Phase 4** : Nettoyage structure repository (suppression worktrees committés)
+Statut détaillé (phases, interfaces livrées) : voir
+[`docs/context/etat_actuel.md`](docs/context/etat_actuel.md).
 
 ### Architecture Technique
-- **Serveur MCP Rust** pour données Velib Paris
-- **Deux datasets principaux** :
-  - Disponibilité stations en temps réel
-  - Localisations et métadonnées des stations
-- **Déploiement Scaleway** via GitHub Actions
-- **Suite de tests complète** (18+ tests)
-- **Validations sécurité** incluant limites zone service 50km
+- Serveur MCP Rust, JSON-RPC 2.0 sur HTTP `/mcp` et WebSocket `/mcp/ws`
+- Deux datasets : disponibilité temps réel et emplacements des stations
+- Déploiement Scaleway Container Serverless via GitHub Actions
+- Validation des coordonnées : bornes Paris métropole + rayon 50km
+  ([`Coordinates`](src/types.rs))
 
 ### Fichiers Importants
-- `/src/main.rs` - Point d'entrée principal
-- `/src/mcp/` - Implémentation protocole MCP
-- `/src/data/` - Client données et cache
-- `/src/types.rs` - Structures de données principales
-- `/docs/api/data_analysis.md` - Analyse données complète
-- `/docs/context/etat_actuel.md` - Suivi statut projet
+- [`src/main.rs`](src/main.rs) — point d'entrée
+- [`src/mcp/`](src/mcp) — protocole MCP (handlers, server, types)
+- [`src/data/`](src/data) — client et cache
+- [`src/types.rs`](src/types.rs) — structures partagées
+- [`docs/api/data_analysis.md`](docs/api/data_analysis.md) — analyse données
+- [`docs/api/mcp_interface_spec.md`](docs/api/mcp_interface_spec.md) — interface MCP
 
 ### Commandes Développement
 ```bash
