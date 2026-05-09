@@ -63,32 +63,55 @@ async fn find_nearby_rejects_coordinates_outside_paris_metro() {
 }
 
 #[tokio::test]
+async fn is_within_paris_service_area_rejects_distant_coordinates() {
+    // The handler's service-area check is gated behind `is_valid_paris_metro`
+    // (a bounding box fully contained within the 50km radius), so the
+    // `OutsideServiceArea` branch is not reachable via the public handler API
+    // with currently valid box coordinates. Instead, verify the guard
+    // function `is_within_paris_service_area` directly with coordinates
+    // provably outside the 50km service radius from Paris City Hall
+    // (48.8565, 2.3514).
+    //
+    // Reims is ~130km ENE of Paris -- unambiguously outside 50km.
+    let reims = Coordinates::new(49.2583, 4.0317);
+    assert!(
+        !reims.is_within_paris_service_area(),
+        "Reims must be outside the 50km Paris service area"
+    );
+
+    // Lyon is ~390km SSE -- unambiguously outside.
+    let lyon = Coordinates::new(45.7640, 4.8357);
+    assert!(
+        !lyon.is_within_paris_service_area(),
+        "Lyon must be outside the 50km Paris service area"
+    );
+
+    // Paris City Hall itself must be inside.
+    let city_hall = Coordinates::new(48.8565, 2.3514);
+    assert!(
+        city_hall.is_within_paris_service_area(),
+        "Paris City Hall must be inside the 50km Paris service area"
+    );
+}
+
+#[tokio::test]
 async fn find_nearby_rejects_coordinates_outside_service_area() {
     let handler = McpToolHandler::new();
-    // Coordinates within Paris metro bounds but > 50km from city hall
-    // (far eastern edge of the metro box)
+    // ~100 km north of Paris City Hall (48.8565, 2.3514) -- unambiguously
+    // outside the 50 km service-area radius. Validation must reject this
+    // before any network call is made.
     let input = FindNearbyStationsInput {
-        latitude: 48.95,
-        longitude: 2.59,
+        latitude: 49.75,
+        longitude: 2.3522,
         radius_meters: 500,
         limit: 10,
         availability_filter: None,
     };
 
     let result = handler.find_nearby_stations(input).await;
-    // This might be within service area depending on exact distance calculation,
-    // but if it passes validation, the API call will follow. We just verify
-    // the validation layer doesn't panic.
-    // The key point is that if the coordinates are truly > 50km away,
-    // we get an OutsideServiceArea error.
-    if let Err(err) = &result {
-        let err_type = err.error_type();
-        assert!(
-            err_type == "outside_service_area" || err_type == "http_error",
-            "Unexpected error type: {err_type}"
-        );
-    }
-    // If it succeeded, the coordinates were within 50km -- also acceptable.
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.error_type(), "outside_service_area");
 }
 
 #[tokio::test]

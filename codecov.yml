@@ -1,0 +1,15 @@
+coverage:
+  precision: 2
+  round: down
+  range: "70...100"
+  status:
+    project:
+      default:
+        # Allow up to 2% drop so that pure refactoring PRs that remove
+        # previously-covered duplicated code don't fail the coverage gate.
+        # The patch gate (100% of diff hit) remains the meaningful bar.
+        threshold: 2%
+    patch:
+      default:
+        target: auto
+        threshold: 0%

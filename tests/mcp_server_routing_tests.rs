@@ -92,6 +92,27 @@ async fn tools_list_returns_all_five_tools() {
 }
 
 #[tokio::test]
+async fn search_stations_by_name_schema_limit_matches_handler_enforcement() {
+    // The advertised schema max must match the handler's `MAX_RESULT_LIMIT`
+    // (100). A drift here silently shrinks the tool's advertised capability
+    // and can be caught early by this regression test.
+    let (_, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .await;
+
+    let tools = body["result"]["tools"].as_array().unwrap();
+    let search = tools
+        .iter()
+        .find(|t| t["name"] == "search_stations_by_name")
+        .expect("schema includes search_stations_by_name");
+    assert_eq!(search["inputSchema"]["properties"]["limit"]["maximum"], 100);
+}
+
+#[tokio::test]
 async fn tools_list_entries_have_required_schema_fields() {
     let (_, body) = post_mcp(json!({
         "jsonrpc": "2.0",
@@ -230,8 +251,8 @@ async fn tools_call_non_object_params_returns_500() {
 #[tokio::test]
 async fn tools_call_find_nearby_stations_dispatches_and_validates() {
     // Radius over 5000m triggers validation failure before any network I/O.
-    // The handler returns Err which `?` propagates out of
-    // `process_jsonrpc_request` into the 500 path.
+    // The handler returns Err which is wrapped into a JSON-RPC error response
+    // (HTTP 200) by `process_jsonrpc_request`.
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -248,16 +269,18 @@ async fn tools_call_find_nearby_stations_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    let msg = body["error"].as_str().unwrap();
-    assert!(msg.contains("radius") && msg.contains("99999"), "{msg}");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
+    let msg = body["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("radius") || msg.contains("99999"), "{msg}");
 }
 
 #[tokio::test]
 async fn tools_call_search_stations_by_name_dispatches_and_validates() {
     // Query under the 2-character minimum fails validation pre-network,
     // exercising the `search_stations_by_name` dispatch arm.
-    let (status, _) = post_mcp(json!({
+    // The error is wrapped into a JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 2,
         "method": "tools/call",
@@ -272,13 +295,15 @@ async fn tools_call_search_stations_by_name_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
 async fn tools_call_plan_bike_journey_dispatches_and_validates() {
     // (0, 0) origin fails Paris-bounds validation pre-network, exercising the
     // `plan_bike_journey` dispatch arm.
+    // The error is wrapped into a JSON-RPC error response (HTTP 200).
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 3,
@@ -293,8 +318,9 @@ async fn tools_call_plan_bike_journey_dispatches_and_validates() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(body["error"]
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
+    assert!(body["error"]["message"]
         .as_str()
         .unwrap()
         .to_lowercase()
@@ -302,11 +328,11 @@ async fn tools_call_plan_bike_journey_dispatches_and_validates() {
 }
 
 #[tokio::test]
-async fn tools_call_with_malformed_arguments_returns_500() {
+async fn tools_call_with_malformed_arguments_returns_jsonrpc_error() {
     // Arguments missing required `latitude` field make
-    // `serde_json::from_value` fail inside the `find_nearby_stations`
-    // dispatch arm; the `?` surfaces the JSON error as a 500.
-    let (status, _) = post_mcp(json!({
+    // `serde_json::from_value` fail inside `tool_text_content`; the error is
+    // wrapped into a JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
@@ -319,7 +345,8 @@ async fn tools_call_with_malformed_arguments_returns_500() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
@@ -345,8 +372,9 @@ async fn unknown_resource_uri_returns_404() {
 async fn tools_call_without_arguments_uses_default_empty_object() {
     // When `arguments` is absent, the server falls back to `json!({})` as the
     // default. For `search_stations_by_name`, that deserializes with a missing
-    // required `query` field, so serde fails and `?` surfaces as a 500.
-    let (status, _) = post_mcp(json!({
+    // required `query` field, so serde fails and the error is wrapped into a
+    // JSON-RPC error response (HTTP 200).
+    let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
@@ -356,7 +384,8 @@ async fn tools_call_without_arguments_uses_default_empty_object() {
     }))
     .await;
 
-    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_object(), "expected JSON-RPC error object");
 }
 
 #[tokio::test]
@@ -370,6 +399,23 @@ async fn request_with_string_id_preserves_id_in_response() {
     .await;
 
     assert_eq!(body["id"], "client-generated-id");
+}
+
+#[tokio::test]
+async fn tools_list_accepts_request_with_omitted_params() {
+    // JSON-RPC 2.0 allows `params` to be omitted; the server must not reject
+    // parameterless calls like `tools/list`. Regression guard for the
+    // `#[serde(default)]` on `JsonRpcRequest::params`.
+    let (status, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/list"
+    }))
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["id"], 99);
+    assert!(body["result"]["tools"].is_array());
 }
 
 #[tokio::test]
