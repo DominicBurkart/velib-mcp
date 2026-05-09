@@ -332,6 +332,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // Note: make_client() constructs a real VelibDataClient (which initialises
+    // a live RetryableHttpClient internally). The network is never called in
+    // these unit tests because only the pure parsing helpers are exercised.
     fn make_client() -> VelibDataClient {
         VelibDataClient::new()
     }
@@ -386,6 +389,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_realtime_status_renting_but_not_returning_is_maintenance() {
+        // is_installed OUI, is_renting OUI but is_returning NON → Maintenance
+        // (symmetry case: ensures the && condition catches both sub-cases)
+        let client = make_client();
+        let record = json!({
+            "stationcode": "16110",
+            "mechanical": 1,
+            "ebike": 0,
+            "numdocksavailable": 5,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "NON",
+            "duedate": "2024-01-15T10:00:00+00:00"
+        });
+
+        let result = client.parse_realtime_status(&record);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        let (_, status) = result.unwrap();
+        assert_eq!(status.status, StationStatus::Maintenance);
+    }
+
+    #[test]
     fn parse_realtime_status_closed() {
         // is_installed NON → Closed
         let client = make_client();
@@ -404,6 +429,24 @@ mod tests {
         assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
         let (_, status) = result.unwrap();
         assert_eq!(status.status, StationStatus::Closed);
+    }
+
+    #[test]
+    fn parse_realtime_status_missing_stationcode_returns_error() {
+        let client = make_client();
+        let record = json!({
+            "mechanical": 2,
+            "ebike": 1,
+            "numdocksavailable": 8,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+            "duedate": "2024-01-15T10:00:00+00:00"
+        });
+        assert!(
+            client.parse_realtime_status(&record).is_err(),
+            "Expected Err for missing stationcode"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -454,5 +497,21 @@ mod tests {
 
         let result = client.parse_reference_station(&record);
         assert!(result.is_err(), "Expected Err for missing capacity");
+    }
+
+    #[test]
+    fn parse_reference_station_missing_coordinates_returns_error() {
+        let client = make_client();
+        // coordonnees_geo omitted — exercises the geo ok_or_else error path
+        let record = json!({
+            "stationcode": "10042",
+            "name": "Some Station",
+            "capacity": 35
+        });
+
+        assert!(
+            client.parse_reference_station(&record).is_err(),
+            "Expected Err for missing coordonnees_geo"
+        );
     }
 }

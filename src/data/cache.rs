@@ -101,7 +101,10 @@ mod tests {
     #[tokio::test]
     async fn expired_entry_returns_none() {
         let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
-        // Insert with a 1ms TTL
+        // Insert with a 1ms TTL. InMemoryCache uses chrono::Utc::now() for
+        // expiry tracking (not tokio::time::Instant), so tokio::time::pause
+        // cannot mock it. Use a conservative 100ms wall-clock sleep instead
+        // to stay reliable on loaded CI runners.
         cache
             .insert_with_ttl(
                 "key_exp".to_string(),
@@ -109,8 +112,7 @@ mod tests {
                 Duration::milliseconds(1),
             )
             .await;
-        // Wait long enough for expiry
-        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        tokio::time::sleep(StdDuration::from_millis(100)).await;
         let result = cache.get(&"key_exp".to_string()).await;
         assert_eq!(result, None);
     }
@@ -125,7 +127,9 @@ mod tests {
                 Duration::milliseconds(1),
             )
             .await;
-        tokio::time::sleep(StdDuration::from_millis(5)).await;
+        // Use a conservative 100ms wall-clock sleep (see expired_entry_returns_none
+        // for rationale — chrono-based expiry cannot be mocked via tokio::time::pause).
+        tokio::time::sleep(StdDuration::from_millis(100)).await;
         cache.cleanup_expired().await;
         assert_eq!(cache.size().await, 0);
     }
@@ -147,6 +151,9 @@ mod tests {
         for i in 0..7u32 {
             cache.insert(i, "v").await;
         }
+        assert_eq!(cache.size().await, 7);
+        // Re-inserting an existing key must not inflate the count.
+        cache.insert(0u32, "updated").await;
         assert_eq!(cache.size().await, 7);
     }
 }
