@@ -472,4 +472,140 @@ mod tests {
 
         assert!(reference.validate().is_err());
     }
+
+    // --- Additional coordinate validation tests (from PR #60) ---
+
+    #[test]
+    fn test_paris_coordinate_is_valid() {
+        // A point in the heart of Paris
+        let paris = Coordinates::new(48.8566, 2.3522);
+        assert!(paris.is_valid_paris_metro());
+        assert!(paris.is_within_paris_service_area());
+    }
+
+    #[test]
+    fn test_london_coordinate_is_rejected() {
+        let london = Coordinates::new(51.5074, -0.1278);
+        assert!(!london.is_valid_paris_metro());
+        assert!(!london.is_within_paris_service_area());
+    }
+
+    // --- DataFreshness boundary classification tests ---
+
+    #[test]
+    fn test_data_freshness_5_minutes_is_fresh() {
+        assert_eq!(DataFreshness::from_age(5.0), DataFreshness::Fresh);
+    }
+
+    #[test]
+    fn test_data_freshness_20_minutes_is_recent() {
+        assert_eq!(DataFreshness::from_age(20.0), DataFreshness::Recent);
+    }
+
+    #[test]
+    fn test_data_freshness_60_minutes_is_stale() {
+        assert_eq!(DataFreshness::from_age(60.0), DataFreshness::Stale);
+    }
+
+    #[test]
+    fn test_data_freshness_200_minutes_is_very_stale() {
+        assert_eq!(DataFreshness::from_age(200.0), DataFreshness::VeryStale);
+    }
+
+    // --- Distance filtering helper ---
+
+    /// Simulates the in-handler distance filter: keep only stations within radius_meters.
+    fn filter_stations_by_radius(
+        stations: &[VelibStation],
+        query: &Coordinates,
+        radius_meters: u32,
+    ) -> Vec<u32> {
+        stations
+            .iter()
+            .filter_map(|s| {
+                let d = query.distance_to(&s.reference.coordinates) as u32;
+                if d <= radius_meters {
+                    Some(d)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn make_station(lat: f64, lon: f64) -> VelibStation {
+        VelibStation::new(StationReference {
+            station_code: format!("{lat}_{lon}"),
+            name: "Test".to_string(),
+            coordinates: Coordinates::new(lat, lon),
+            capacity: 20,
+            capabilities: ServiceCapabilities::default(),
+        })
+    }
+
+    #[test]
+    fn test_distance_filter_excludes_stations_beyond_radius() {
+        let query = Coordinates::new(48.8566, 2.3522); // Paris centre
+
+        // Station very close (~0 m away)
+        let close = make_station(48.8566, 2.3522);
+        // Station ~1.3 km away (Louvre area)
+        let medium = make_station(48.8606, 2.3376);
+        // Station far away (London)
+        let far = make_station(51.5074, -0.1278);
+
+        let stations = vec![close, medium, far];
+
+        let within_500m = filter_stations_by_radius(&stations, &query, 500);
+        assert_eq!(
+            within_500m.len(),
+            1,
+            "only the co-located station should be within 500 m"
+        );
+
+        let within_2000m = filter_stations_by_radius(&stations, &query, 2000);
+        assert_eq!(
+            within_2000m.len(),
+            2,
+            "close and medium should be within 2 km"
+        );
+    }
+}
+
+// --- Haversine property tests ---
+#[cfg(test)]
+mod proptest_haversine {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Latitude in [-90, 90], longitude in [-180, 180]
+    prop_compose! {
+        fn arb_coord()(lat in -90.0f64..=90.0f64, lon in -180.0f64..=180.0f64) -> Coordinates {
+            Coordinates::new(lat, lon)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn haversine_distance_is_non_negative(a in arb_coord(), b in arb_coord()) {
+            let d = a.distance_to(&b);
+            prop_assert!(d >= 0.0, "distance must be >= 0, got {d}");
+        }
+
+        #[test]
+        fn haversine_distance_identical_points_is_zero(a in arb_coord()) {
+            let d = a.distance_to(&a);
+            prop_assert!(d.abs() < 1e-6, "distance from point to itself must be ~0, got {d}");
+        }
+
+        #[test]
+        fn haversine_distance_is_symmetric(a in arb_coord(), b in arb_coord()) {
+            let ab = a.distance_to(&b);
+            let ba = b.distance_to(&a);
+            prop_assert!(
+                (ab - ba).abs() < 1e-6,
+                "distance must be symmetric: d(a,b)={ab}, d(b,a)={ba}"
+            );
+        }
+    }
 }
