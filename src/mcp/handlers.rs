@@ -357,7 +357,8 @@ impl McpToolHandler {
             let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
             let dropoff_walk_ratio =
                 f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
-            let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
+            let confidence_score =
+                1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
 
             recommendations.push(JourneyRecommendation {
                 pickup_station: best_pickup.station.clone(),
