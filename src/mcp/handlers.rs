@@ -19,11 +19,113 @@ use tokio::sync::RwLock;
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
 
-// Paris City Hall coordinates - reference point for service area validation
-const PARIS_CITY_HALL: Coordinates = Coordinates {
-    latitude: 48.8565,
-    longitude: 2.3514,
-};
+/// Validate that a coordinate is within the Velib service area, returning the
+/// appropriate `Error` if not. Centralizes the two checks previously duplicated
+/// across each handler (valid Paris metro bounds + 50km-of-City-Hall).
+fn ensure_in_service_area(coords: &Coordinates) -> Result<()> {
+    if !coords.is_valid_paris_metro() {
+        return Err(Error::InvalidCoordinates {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+        });
+    }
+    if !coords.is_within_paris_service_area() {
+        return Err(Error::OutsideServiceArea {
+            distance_km: coords.distance_to_paris_city_hall_km(),
+        });
+    }
+    Ok(())
+}
+
+/// Aggregate a set of stations into area statistics.
+///
+/// Pure function over an iterator so it can be unit-tested without any
+/// data-client wiring. Stations without real-time data contribute to
+/// `total_stations`, `operational_stations` (per `is_operational`), and
+/// `total_capacity`, but their bike/dock counts are treated as 0 -- the data is
+/// genuinely absent, and invented zeros for `has_bikes`/`has_docks` would be
+/// misleading. The `occupancy_rate` is bikes-over-capacity and returns 0.0
+/// when no capacity is present.
+fn aggregate_area_statistics<'a, I>(stations: I) -> AreaStatistics
+where
+    I: IntoIterator<Item = &'a VelibStation>,
+{
+    let mut total_stations = 0u32;
+    let mut operational_stations = 0u32;
+    let mut total_capacity = 0u32;
+    let mut total_mechanical = 0u32;
+    let mut total_electric = 0u32;
+    let mut total_available_docks = 0u32;
+
+    for station in stations {
+        total_stations += 1;
+        if station.is_operational() {
+            operational_stations += 1;
+        }
+        total_capacity += u32::from(station.reference.capacity);
+        if let Some(rt) = &station.real_time {
+            total_mechanical += u32::from(rt.bikes.mechanical);
+            total_electric += u32::from(rt.bikes.electric);
+            total_available_docks += u32::from(rt.available_docks);
+        }
+    }
+
+    let total_bikes = total_mechanical + total_electric;
+    let occupancy_rate = if total_capacity > 0 {
+        f64::from(total_bikes) / f64::from(total_capacity)
+    } else {
+        0.0
+    };
+
+    AreaStatistics {
+        total_stations,
+        operational_stations,
+        total_capacity,
+        available_bikes: AvailableBikesStats {
+            mechanical: total_mechanical,
+            electric: total_electric,
+            total: total_bikes,
+        },
+        available_docks: total_available_docks,
+        occupancy_rate,
+    }
+}
+
+/// Find stations near a point, filtering by distance and a custom predicate,
+/// sorted by distance and truncated to `limit` results.
+///
+/// Each matched station is cloned into the returned `StationWithDistance`. This
+/// is intentional: callers that hold the original slice (e.g. `plan_bike_journey`,
+/// which needs `all_stations` for both the pickup and the dropoff pass) must not
+/// have their data consumed. For `find_nearby_stations`, which previously used
+/// `into_iter()`, this introduces one extra clone per matched station; given the
+/// Paris Velib network of ~1,400 stations this overhead is negligible.
+fn find_stations_within_radius(
+    stations: &[VelibStation],
+    origin: &Coordinates,
+    radius_meters: u32,
+    limit: usize,
+    predicate: impl Fn(&VelibStation) -> bool,
+) -> Vec<StationWithDistance> {
+    let mut results: Vec<StationWithDistance> = stations
+        .iter()
+        .filter_map(|station| {
+            let distance = origin.distance_to(&station.reference.coordinates) as u32;
+            if distance <= radius_meters && predicate(station) {
+                Some(StationWithDistance {
+                    station: station.clone(),
+                    straight_line_distance_meters: distance,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    results.sort_by_key(|s| s.straight_line_distance_meters);
+    results.truncate(limit);
+    results
+}
 
 pub struct McpToolHandler {
     data_client: Arc<RwLock<VelibDataClient>>,
@@ -91,61 +193,29 @@ impl McpToolHandler {
         }
 
         let query_point = Coordinates::new(input.latitude, input.longitude);
-        if !query_point.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.latitude,
-                longitude: input.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall
-        if !query_point.is_within_paris_service_area() {
-            let distance_km = query_point.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        ensure_in_service_area(&query_point)?;
 
         // Fetch live station data
         let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Filter stations by distance and bike type
-        let mut nearby_stations: Vec<StationWithDistance> = all_stations
-            .into_iter()
-            .filter_map(|station| {
-                let distance = query_point.distance_to(&station.reference.coordinates) as u32;
-
-                // Check if within search radius
-                if distance <= input.radius_meters {
-                    // Check if station has the requested bike type (if specified)
-                    let has_requested_bikes = match &input.availability_filter {
-                        Some(filter) => match &filter.bike_type {
-                            Some(bike_type) => station.has_available_bikes(bike_type),
-                            None => true,
-                        },
-                        None => true, // No filter specified
-                    };
-
-                    if has_requested_bikes && station.is_operational() {
-                        Some(StationWithDistance {
-                            station,
-                            straight_line_distance_meters: distance,
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Sort by distance
-        nearby_stations.sort_by_key(|s| s.straight_line_distance_meters);
-
-        // Limit results
-        nearby_stations.truncate(input.limit as usize);
-
-        let stations = nearby_stations;
+        let stations = find_stations_within_radius(
+            &all_stations,
+            &query_point,
+            input.radius_meters,
+            input.limit as usize,
+            |station| {
+                let has_requested_bikes = match &input.availability_filter {
+                    Some(filter) => match &filter.bike_type {
+                        Some(bike_type) => station.has_available_bikes(bike_type),
+                        None => true,
+                    },
+                    None => true,
+                };
+                has_requested_bikes && station.is_operational()
+            },
+        );
 
         let search_time = start_time.elapsed().as_millis() as u64;
 
@@ -242,56 +312,12 @@ impl McpToolHandler {
         let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations within the specified bounds
-        let area_stations: Vec<&VelibStation> = all_stations
+        let area_stations = all_stations
             .iter()
-            .filter(|station| input.bounds.contains(&station.reference.coordinates))
-            .collect();
-
-        // Calculate area statistics from live data
-        let total_stations = area_stations.len() as u32;
-        let operational_stations = area_stations
-            .iter()
-            .filter(|station| station.is_operational())
-            .count() as u32;
-
-        let mut total_capacity = 0u32;
-        let mut total_mechanical = 0u32;
-        let mut total_electric = 0u32;
-        let mut total_available_docks = 0u32;
-
-        for station in &area_stations {
-            total_capacity += u32::from(station.reference.capacity);
-
-            if let Some(rt) = &station.real_time {
-                total_mechanical += u32::from(rt.bikes.mechanical);
-                total_electric += u32::from(rt.bikes.electric);
-                total_available_docks += u32::from(rt.available_docks);
-            }
-        }
-
-        let total_bikes = total_mechanical + total_electric;
-        let occupancy_rate = if total_capacity > 0 {
-            f64::from(total_bikes) / f64::from(total_capacity)
-        } else {
-            0.0
-        };
-
-        let stats = AreaStatistics {
-            total_stations,
-            operational_stations,
-            total_capacity,
-            available_bikes: AvailableBikesStats {
-                mechanical: total_mechanical,
-                electric: total_electric,
-                total: total_bikes,
-            },
-            available_docks: total_available_docks,
-            occupancy_rate,
-        };
+            .filter(|station| input.bounds.contains(&station.reference.coordinates));
 
         Ok(GetAreaStatisticsOutput {
-            area_stats: stats,
+            area_stats: aggregate_area_statistics(area_stations),
             bounds: input.bounds,
         })
     }
@@ -300,30 +326,8 @@ impl McpToolHandler {
         &self,
         input: PlanBikeJourneyInput,
     ) -> Result<PlanBikeJourneyOutput> {
-        if !input.origin.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.origin.latitude,
-                longitude: input.origin.longitude,
-            });
-        }
-
-        if !input.destination.is_valid_paris_metro() {
-            return Err(Error::InvalidCoordinates {
-                latitude: input.destination.latitude,
-                longitude: input.destination.longitude,
-            });
-        }
-
-        // Enforce 50km distance limit from Paris City Hall for both origin and destination
-        if !input.origin.is_within_paris_service_area() {
-            let distance_km = input.origin.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
-
-        if !input.destination.is_within_paris_service_area() {
-            let distance_km = input.destination.distance_to(&PARIS_CITY_HALL) / 1000.0;
-            return Err(Error::OutsideServiceArea { distance_km });
-        }
+        ensure_in_service_area(&input.origin)?;
+        ensure_in_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
         let data_client = self.data_client.read().await;
@@ -333,57 +337,24 @@ impl McpToolHandler {
         let preferences = input.preferences.unwrap_or_default();
 
         // Find pickup stations near origin
-        let mut pickup_candidates: Vec<StationWithDistance> = all_stations
-            .iter()
-            .filter_map(|station| {
-                let distance = input.origin.distance_to(&station.reference.coordinates) as u32;
-
-                if distance <= preferences.max_walk_distance
-                    && station.is_operational()
-                    && station.has_available_bikes(&preferences.bike_type)
-                {
-                    Some(StationWithDistance {
-                        station: station.clone(),
-                        straight_line_distance_meters: distance,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        pickup_candidates.sort_by_key(|s| s.straight_line_distance_meters);
-        pickup_candidates.truncate(3);
+        let pickup_stations = find_stations_within_radius(
+            &all_stations,
+            &input.origin,
+            preferences.max_walk_distance,
+            3,
+            |station| {
+                station.is_operational() && station.has_available_bikes(&preferences.bike_type)
+            },
+        );
 
         // Find dropoff stations near destination
-        let mut dropoff_candidates: Vec<StationWithDistance> = all_stations
-            .iter()
-            .filter_map(|station| {
-                let distance = input
-                    .destination
-                    .distance_to(&station.reference.coordinates)
-                    as u32;
-
-                if distance <= preferences.max_walk_distance
-                    && station.is_operational()
-                    && station.has_available_docks(1)
-                // At least 1 dock available
-                {
-                    Some(StationWithDistance {
-                        station: station.clone(),
-                        straight_line_distance_meters: distance,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        dropoff_candidates.sort_by_key(|s| s.straight_line_distance_meters);
-        dropoff_candidates.truncate(3);
-
-        let pickup_stations = pickup_candidates;
-        let dropoff_stations = dropoff_candidates;
+        let dropoff_stations = find_stations_within_radius(
+            &all_stations,
+            &input.destination,
+            preferences.max_walk_distance,
+            3,
+            |station| station.is_operational() && station.has_available_docks(1),
+        );
 
         // Generate journey recommendations
         let mut recommendations = Vec::new();
@@ -468,5 +439,316 @@ impl Default for JourneyPreferences {
             bike_type: BikeTypeFilter::AnyType,
             max_walk_distance: 500,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{
+        BikeAvailability, DataFreshness, RealTimeStatus, ServiceCapabilities, StationReference,
+        StationStatus,
+    };
+    use chrono::Utc;
+
+    /// Build a minimal operational station with the given code, coordinates, and bike counts.
+    fn make_station(
+        code: &str,
+        lat: f64,
+        lon: f64,
+        mechanical: u16,
+        electric: u16,
+    ) -> VelibStation {
+        VelibStation {
+            reference: StationReference {
+                station_code: code.to_string(),
+                name: format!("Station {code}"),
+                coordinates: Coordinates::new(lat, lon),
+                capacity: 20,
+                capabilities: ServiceCapabilities::default(),
+            },
+            real_time: Some(RealTimeStatus {
+                bikes: BikeAvailability::new(mechanical, electric),
+                available_docks: 20 - mechanical - electric,
+                status: StationStatus::Open,
+                last_update: Utc::now(),
+                data_freshness: DataFreshness::Fresh,
+            }),
+        }
+    }
+
+    /// Paris City Hall as a convenient well-known origin.
+    fn paris_city_hall() -> Coordinates {
+        Coordinates::new(48.8565, 2.3514)
+    }
+
+    // --- filtering by radius ---
+
+    #[test]
+    fn test_radius_filtering_excludes_distant_stations() {
+        let origin = paris_city_hall();
+        // ~111 m per 0.001° latitude; place one station ~200 m away and one ~2 km away.
+        let near = make_station("near", 48.8565, 2.3514, 2, 0); // same point
+        let far = make_station("far", 48.875, 2.3514, 2, 0); // ~2 km north
+        let stations = vec![near, far];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "near");
+    }
+
+    #[test]
+    fn test_empty_result_when_all_stations_out_of_radius() {
+        let origin = paris_city_hall();
+        let far1 = make_station("far1", 48.875, 2.3514, 2, 0);
+        let far2 = make_station("far2", 48.880, 2.3514, 2, 0);
+        let stations = vec![far1, far2];
+
+        let results = find_stations_within_radius(&stations, &origin, 100, 10, |_| true);
+
+        assert!(results.is_empty());
+    }
+
+    // --- sort order ---
+
+    #[test]
+    fn test_results_sorted_by_distance_ascending() {
+        let origin = paris_city_hall();
+        // Build stations in reverse distance order so we can confirm sorting flips them.
+        let closest = make_station("closest", 48.8566, 2.3514, 1, 0); // ~11 m
+        let middle = make_station("middle", 48.8575, 2.3514, 1, 0); // ~110 m
+        let farthest = make_station("farthest", 48.8585, 2.3514, 1, 0); // ~220 m
+        let stations = vec![farthest.clone(), middle.clone(), closest.clone()];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| true);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].station.reference.station_code, "closest");
+        assert_eq!(results[1].station.reference.station_code, "middle");
+        assert_eq!(results[2].station.reference.station_code, "farthest");
+        // Distances must be non-decreasing.
+        assert!(
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
+        );
+    }
+
+    // --- truncation ---
+
+    #[test]
+    fn test_truncation_to_limit() {
+        let origin = paris_city_hall();
+        let stations: Vec<VelibStation> = (0..10)
+            .map(|i| {
+                // Space them out within radius but at different distances.
+                make_station(
+                    &format!("s{i}"),
+                    48.8565 + f64::from(i) * 0.0001,
+                    2.3514,
+                    1,
+                    0,
+                )
+            })
+            .collect();
+
+        let results = find_stations_within_radius(&stations, &origin, 5000, 3, |_| true);
+
+        assert_eq!(results.len(), 3);
+        // The 3 returned must be the 3 closest (limit applied after sort).
+        assert!(
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
+        );
+    }
+
+    #[test]
+    fn test_limit_larger_than_matches_returns_all_matches() {
+        let origin = paris_city_hall();
+        let stations = vec![
+            make_station("a", 48.8565, 2.3514, 1, 0),
+            make_station("b", 48.8566, 2.3514, 1, 0),
+        ];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 100, |_| true);
+
+        assert_eq!(results.len(), 2);
+    }
+
+    // --- predicate ---
+
+    #[test]
+    fn test_predicate_filters_stations() {
+        let origin = paris_city_hall();
+        // One station has mechanical bikes, one has only electric.
+        let mech = make_station("mech", 48.8565, 2.3514, 3, 0);
+        let elec = make_station("elec", 48.8566, 2.3514, 0, 3);
+        let stations = vec![mech, elec];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |s| {
+            s.has_available_bikes(&BikeTypeFilter::MechanicalOnly)
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].station.reference.station_code, "mech");
+    }
+
+    #[test]
+    fn test_predicate_rejects_all_returns_empty() {
+        let origin = paris_city_hall();
+        let stations = vec![
+            make_station("a", 48.8565, 2.3514, 1, 0),
+            make_station("b", 48.8566, 2.3514, 1, 0),
+        ];
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 10, |_| false);
+
+        assert!(results.is_empty());
+    }
+
+    // --- combined: predicate + radius + truncation ---
+
+    #[test]
+    fn test_combined_radius_predicate_and_limit() {
+        let origin = paris_city_hall();
+        // 5 stations in radius with mechanical bikes, 2 outside radius, 1 in radius without bikes.
+        let mut stations: Vec<VelibStation> = (0..5)
+            .map(|i| {
+                make_station(
+                    &format!("m{i}"),
+                    48.8565 + f64::from(i) * 0.0001,
+                    2.3514,
+                    2,
+                    0,
+                )
+            })
+            .collect();
+        stations.push(make_station("far", 48.875, 2.3514, 2, 0)); // outside radius
+        stations.push(make_station("nobike", 48.8566, 2.3520, 0, 0)); // in radius, no bikes
+
+        let results = find_stations_within_radius(&stations, &origin, 500, 3, |s| {
+            s.has_available_bikes(&BikeTypeFilter::MechanicalOnly)
+        });
+
+        assert_eq!(results.len(), 3);
+        // All returned stations must be within radius.
+        for r in &results {
+            assert!(r.straight_line_distance_meters <= 500);
+        }
+        // Must be sorted by distance.
+        assert!(
+            results[0].straight_line_distance_meters <= results[1].straight_line_distance_meters
+        );
+        assert!(
+            results[1].straight_line_distance_meters <= results[2].straight_line_distance_meters
+        );
+    }
+
+    // --- ensure_in_service_area ---
+
+    #[test]
+    fn test_ensure_in_service_area_accepts_paris_center() {
+        let center = Coordinates::new(48.8566, 2.3522);
+        assert!(ensure_in_service_area(&center).is_ok());
+    }
+
+    #[test]
+    fn test_ensure_in_service_area_rejects_invalid_bounds() {
+        // Outside the Paris metro bounding box entirely.
+        let nyc = Coordinates::new(40.7128, -74.0060);
+        match ensure_in_service_area(&nyc) {
+            Err(Error::InvalidCoordinates { .. }) => {}
+            other => panic!("expected InvalidCoordinates, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_ensure_in_service_area_rejects_outside_service_area() {
+        // ~100 km north of Paris City Hall: within the broad bounding box
+        // (47.0-50.5°N, 0.0-5.0°E) but outside the 50 km service-area radius.
+        // This exercises the second branch of `ensure_in_service_area`.
+        let north_of_paris = Coordinates::new(49.75, 2.3522);
+        match ensure_in_service_area(&north_of_paris) {
+            Err(Error::OutsideServiceArea { distance_km }) => {
+                assert!(
+                    distance_km > 50.0,
+                    "expected distance > 50 km, got {distance_km:.1} km"
+                );
+            }
+            other => panic!("expected OutsideServiceArea, got {other:?}"),
+        }
+    }
+
+    // --- aggregate_area_statistics ---
+
+    #[test]
+    fn aggregate_empty_iterator_yields_zeroed_stats() {
+        let stats = aggregate_area_statistics(std::iter::empty());
+        assert_eq!(stats.total_stations, 0);
+        assert_eq!(stats.operational_stations, 0);
+        assert_eq!(stats.total_capacity, 0);
+        assert_eq!(stats.available_bikes.total, 0);
+        assert_eq!(stats.available_docks, 0);
+        assert_eq!(stats.occupancy_rate, 0.0);
+    }
+
+    #[test]
+    fn aggregate_sums_bikes_and_docks_across_stations() {
+        let a = make_station("a", 48.85, 2.35, 4, 2); // 6 bikes, 14 docks
+        let b = make_station("b", 48.86, 2.36, 1, 3); // 4 bikes, 16 docks
+        let stations = vec![a, b];
+
+        let stats = aggregate_area_statistics(&stations);
+
+        assert_eq!(stats.total_stations, 2);
+        assert_eq!(stats.operational_stations, 2);
+        assert_eq!(stats.total_capacity, 40); // 20 + 20
+        assert_eq!(stats.available_bikes.mechanical, 5);
+        assert_eq!(stats.available_bikes.electric, 5);
+        assert_eq!(stats.available_bikes.total, 10);
+        assert_eq!(stats.available_docks, 30);
+        // 10 bikes / 40 capacity = 0.25
+        assert!((stats.occupancy_rate - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn aggregate_counts_stations_without_realtime_as_operational() {
+        // Matches `VelibStation::is_operational`: missing real-time data
+        // defaults to operational.
+        let mut s = make_station("x", 48.85, 2.35, 0, 0);
+        s.real_time = None;
+
+        let stats = aggregate_area_statistics(std::iter::once(&s));
+
+        assert_eq!(stats.total_stations, 1);
+        assert_eq!(stats.operational_stations, 1);
+        assert_eq!(stats.total_capacity, 20);
+        assert_eq!(stats.available_bikes.total, 0);
+        assert_eq!(stats.available_docks, 0);
+        // bikes=0, capacity>0 -> occupancy 0.0
+        assert_eq!(stats.occupancy_rate, 0.0);
+    }
+
+    #[test]
+    fn aggregate_excludes_closed_stations_from_operational_count() {
+        let mut closed = make_station("closed", 48.85, 2.35, 5, 0);
+        if let Some(rt) = closed.real_time.as_mut() {
+            rt.status = StationStatus::Closed;
+        }
+        let open = make_station("open", 48.86, 2.36, 2, 0);
+        let stations = vec![closed, open];
+
+        let stats = aggregate_area_statistics(&stations);
+
+        assert_eq!(stats.total_stations, 2);
+        // Only the `Open` station counts as operational; the `Closed` one still
+        // contributes capacity and its bike count (accurate reporting, not
+        // availability for rental).
+        assert_eq!(stats.operational_stations, 1);
+        assert_eq!(stats.available_bikes.total, 7);
     }
 }

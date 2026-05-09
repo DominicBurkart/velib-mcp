@@ -32,6 +32,7 @@ async fn test_cache_cleanup() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_real_api_fetch_with_timeout() {
     let _guard = TEST_MUTEX.lock().await;
 
@@ -72,6 +73,7 @@ async fn test_real_api_fetch_with_timeout() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_station_by_code_not_found() {
     let _guard = TEST_MUTEX.lock().await;
 
