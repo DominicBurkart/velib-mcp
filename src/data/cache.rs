@@ -88,72 +88,149 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration as StdDuration;
 
-    #[tokio::test]
-    async fn insert_and_get_returns_value() {
-        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
-        cache.insert("key1".to_string(), "hello".to_string()).await;
-        let result = cache.get(&"key1".to_string()).await;
-        assert_eq!(result, Some("hello".to_string()));
+    #[test]
+    fn cache_entry_not_expired_within_ttl() {
+        let entry = CacheEntry::new(42, Duration::seconds(60));
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn cache_entry_expired_with_negative_ttl() {
+        let entry = CacheEntry::new(42, Duration::seconds(-1));
+        assert!(entry.is_expired());
     }
 
     #[tokio::test]
-    async fn expired_entry_returns_none() {
-        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
-        // Insert with a 1ms TTL. InMemoryCache uses chrono::Utc::now() for
-        // expiry tracking (not tokio::time::Instant), so tokio::time::pause
-        // cannot mock it. Use a conservative 100ms wall-clock sleep instead
-        // to stay reliable on loaded CI runners.
-        cache
-            .insert_with_ttl(
-                "key_exp".to_string(),
-                "value".to_string(),
-                Duration::milliseconds(1),
-            )
-            .await;
-        tokio::time::sleep(StdDuration::from_millis(100)).await;
-        let result = cache.get(&"key_exp".to_string()).await;
+    async fn insert_and_get_returns_value() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key1".to_string(), 100).await;
+
+        let result = cache.get(&"key1".to_string()).await;
+        assert_eq!(result, Some(100));
+    }
+
+    #[tokio::test]
+    async fn get_missing_key_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        let result = cache.get(&"nonexistent".to_string()).await;
         assert_eq!(result, None);
     }
 
     #[tokio::test]
-    async fn cleanup_removes_expired() {
-        let cache: InMemoryCache<String, String> = InMemoryCache::new(Duration::minutes(5));
-        cache
-            .insert_with_ttl(
-                "stale".to_string(),
-                "data".to_string(),
-                Duration::milliseconds(1),
-            )
-            .await;
-        // Use a conservative 100ms wall-clock sleep (see expired_entry_returns_none
-        // for rationale — chrono-based expiry cannot be mocked via tokio::time::pause).
-        tokio::time::sleep(StdDuration::from_millis(100)).await;
-        cache.cleanup_expired().await;
-        assert_eq!(cache.size().await, 0);
+    async fn expired_entry_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(-1));
+        cache.insert("key1".to_string(), 100).await;
+
+        let result = cache.get(&"key1".to_string()).await;
+        assert_eq!(result, None);
     }
 
     #[tokio::test]
-    async fn clear_empties_cache() {
-        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::minutes(5));
+    async fn insert_with_custom_ttl() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(1));
+        cache
+            .insert_with_ttl("long_lived".to_string(), 200, Duration::seconds(3600))
+            .await;
+        cache
+            .insert_with_ttl("expired".to_string(), 300, Duration::seconds(-1))
+            .await;
+
+        assert_eq!(cache.get(&"long_lived".to_string()).await, Some(200));
+        assert_eq!(cache.get(&"expired".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn remove_returns_value_and_deletes() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key1".to_string(), 100).await;
+
+        let removed = cache.remove(&"key1".to_string()).await;
+        assert_eq!(removed, Some(100));
+        assert_eq!(cache.get(&"key1".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn remove_missing_key_returns_none() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        let removed = cache.remove(&"nonexistent".to_string()).await;
+        assert_eq!(removed, None);
+    }
+
+    #[tokio::test]
+    async fn size_tracks_entries() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        assert_eq!(cache.size().await, 0);
+
         cache.insert("a".to_string(), 1).await;
         cache.insert("b".to_string(), 2).await;
         cache.insert("c".to_string(), 3).await;
         assert_eq!(cache.size().await, 3);
-        cache.clear().await;
-        assert_eq!(cache.size().await, 0);
+
+        cache.remove(&"b".to_string()).await;
+        assert_eq!(cache.size().await, 2);
     }
 
     #[tokio::test]
-    async fn size_reflects_inserts() {
-        let cache: InMemoryCache<u32, &str> = InMemoryCache::new(Duration::minutes(5));
+    async fn size_reflects_inserts_does_not_inflate_on_overwrite() {
+        // Re-inserting an existing key must not inflate the count.
+        let cache: InMemoryCache<u32, &str> = InMemoryCache::new(Duration::seconds(60));
         for i in 0..7u32 {
             cache.insert(i, "v").await;
         }
         assert_eq!(cache.size().await, 7);
-        // Re-inserting an existing key must not inflate the count.
         cache.insert(0u32, "updated").await;
         assert_eq!(cache.size().await, 7);
+    }
+
+    #[tokio::test]
+    async fn clear_removes_all_entries() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("a".to_string(), 1).await;
+        cache.insert("b".to_string(), 2).await;
+        assert_eq!(cache.size().await, 2);
+
+        cache.clear().await;
+        assert_eq!(cache.size().await, 0);
+        assert_eq!(cache.get(&"a".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_removes_only_expired() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+
+        cache.insert("live".to_string(), 1).await;
+        cache
+            .insert_with_ttl("expired".to_string(), 2, Duration::seconds(-1))
+            .await;
+
+        assert_eq!(cache.size().await, 2);
+
+        cache.cleanup_expired().await;
+
+        assert_eq!(cache.size().await, 1);
+        assert_eq!(cache.get(&"live".to_string()).await, Some(1));
+        assert_eq!(cache.get(&"expired".to_string()).await, None);
+    }
+
+    #[tokio::test]
+    async fn overwrite_replaces_value() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("key".to_string(), 1).await;
+        cache.insert("key".to_string(), 2).await;
+
+        assert_eq!(cache.get(&"key".to_string()).await, Some(2));
+        assert_eq!(cache.size().await, 1);
+    }
+
+    #[tokio::test]
+    async fn integer_keys_work() {
+        let cache: InMemoryCache<u64, String> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert(42, "hello".to_string()).await;
+        cache.insert(99, "world".to_string()).await;
+
+        assert_eq!(cache.get(&42).await, Some("hello".to_string()));
+        assert_eq!(cache.get(&99).await, Some("world".to_string()));
+        assert_eq!(cache.get(&0).await, None);
     }
 }
