@@ -5,9 +5,10 @@ use crate::types::{
     VelibStation,
 };
 use crate::{Error, Result};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::{debug, info};
 
 // Paris Open Data API endpoints
@@ -15,8 +16,8 @@ const VELIB_STATIONS_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/cat
 const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-en-temps-reel/records";
 
 // Cache TTLs
-const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
-const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
+const REFERENCE_CACHE_TTL: Duration = Duration::from_secs(5 * 60); // 5 minutes
+const REALTIME_CACHE_TTL: Duration = Duration::from_secs(2 * 60); // 2 minutes
 
 #[derive(Debug)]
 pub struct VelibDataClient {
@@ -36,8 +37,8 @@ impl VelibDataClient {
     pub fn new() -> Self {
         Self {
             client: RetryableHttpClient::new(),
-            reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
-            realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
+            reference_cache: InMemoryCache::new(REFERENCE_CACHE_TTL),
+            realtime_cache: InMemoryCache::new(REALTIME_CACHE_TTL),
         }
     }
 
@@ -61,8 +62,8 @@ impl VelibDataClient {
         let retry_policy = RetryPolicy::with_config(retry_config);
         Self {
             client: RetryableHttpClient::with_retry_policy(retry_policy),
-            reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
-            realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
+            reference_cache: InMemoryCache::new(REFERENCE_CACHE_TTL),
+            realtime_cache: InMemoryCache::new(REALTIME_CACHE_TTL),
         }
     }
 

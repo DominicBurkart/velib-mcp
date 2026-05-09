@@ -462,7 +462,47 @@ mod tests {
         assert!(!london.is_within_paris_service_area());
     }
 
-    // --- DataFreshness classification tests ---
+    // --- DataFreshness boundary tests ---
+    //
+    // Thresholds from DataFreshness::from_age:
+    //   < 10  min  => Fresh
+    //   < 30  min  => Recent
+    //   < 120 min  => Stale
+    //   >= 120 min => VeryStale
+
+    #[test]
+    fn test_data_freshness_just_below_10_minutes_is_fresh() {
+        // 9.999... min is still Fresh
+        assert_eq!(DataFreshness::from_age(9.999), DataFreshness::Fresh);
+    }
+
+    #[test]
+    fn test_data_freshness_at_10_minutes_is_recent() {
+        // Exactly at the Fresh/Recent boundary => Recent
+        assert_eq!(DataFreshness::from_age(10.0), DataFreshness::Recent);
+    }
+
+    #[test]
+    fn test_data_freshness_just_below_30_minutes_is_recent() {
+        assert_eq!(DataFreshness::from_age(29.999), DataFreshness::Recent);
+    }
+
+    #[test]
+    fn test_data_freshness_at_30_minutes_is_stale() {
+        // Exactly at the Recent/Stale boundary => Stale
+        assert_eq!(DataFreshness::from_age(30.0), DataFreshness::Stale);
+    }
+
+    #[test]
+    fn test_data_freshness_just_below_120_minutes_is_stale() {
+        assert_eq!(DataFreshness::from_age(119.999), DataFreshness::Stale);
+    }
+
+    #[test]
+    fn test_data_freshness_at_120_minutes_is_very_stale() {
+        // Exactly at the Stale/VeryStale boundary => VeryStale
+        assert_eq!(DataFreshness::from_age(120.0), DataFreshness::VeryStale);
+    }
 
     #[test]
     fn test_data_freshness_5_minutes_is_fresh() {
