@@ -1,6 +1,29 @@
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use serde::{Deserialize, Serialize};
 
+// ── Limit / default constants ────────────────────────────────────────────────
+// These are the single source of truth for all limit and default values used
+// by tool handlers, serde defaults, and the JSON schema advertised in
+// server.rs.  Update here; every consumer stays in sync automatically.
+
+/// Hard upper bound on the search radius accepted by `find_nearby_stations`.
+pub const MAX_SEARCH_RADIUS: u32 = 5_000; // 5 km
+
+/// Hard upper bound on the result count accepted by `find_nearby_stations` and
+/// `search_stations_by_name`.
+pub const MAX_RESULT_LIMIT: u16 = 100;
+
+/// Default search radius (metres) when the caller omits `radius_meters`.
+pub const DEFAULT_RADIUS: u32 = 500;
+
+/// Default result limit when the caller omits `limit`.
+pub const DEFAULT_LIMIT: u16 = 10;
+
+/// Default maximum walking distance (metres) for journey preferences.
+pub const DEFAULT_MAX_WALK: u32 = 500;
+
+// ── Availability filter ──────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,10 +112,10 @@ pub struct FindNearbyStationsInput {
 }
 
 fn default_radius() -> u32 {
-    500
+    DEFAULT_RADIUS
 }
 fn default_tool_limit() -> u16 {
-    10
+    DEFAULT_LIMIT
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +158,7 @@ pub struct JourneyPreferences {
 }
 
 fn default_max_walk() -> u32 {
-    500
+    DEFAULT_MAX_WALK
 }
 
 // MCP Tool Outputs

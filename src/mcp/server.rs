@@ -15,7 +15,10 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use super::handlers::McpToolHandler;
-use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use super::types::{
+    JsonRpcError, JsonRpcRequest, JsonRpcResponse, DEFAULT_LIMIT, DEFAULT_RADIUS,
+    MAX_RESULT_LIMIT, MAX_SEARCH_RADIUS,
+};
 use crate::{Error, Result};
 
 pub struct McpServer {
@@ -222,8 +225,18 @@ impl McpServer {
                             "properties": {
                                 "latitude": {"type": "number", "minimum": 48.7, "maximum": 49.0},
                                 "longitude": {"type": "number", "minimum": 2.0, "maximum": 2.6},
-                                "radius_meters": {"type": "integer", "minimum": 100, "maximum": 5000, "default": 500},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+                                "radius_meters": {
+                                    "type": "integer",
+                                    "minimum": 100,
+                                    "maximum": MAX_SEARCH_RADIUS,
+                                    "default": DEFAULT_RADIUS
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": MAX_RESULT_LIMIT,
+                                    "default": DEFAULT_LIMIT
+                                },
                                 "availability_filter": {"type": "object"}
                             },
                             "required": ["latitude", "longitude"]
@@ -248,7 +261,12 @@ impl McpServer {
                             "type": "object",
                             "properties": {
                                 "query": {"type": "string", "minLength": 2},
-                                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+                                "limit": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": MAX_RESULT_LIMIT,
+                                    "default": DEFAULT_LIMIT
+                                },
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
                             "required": ["query"]
