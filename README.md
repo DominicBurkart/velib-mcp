@@ -1,25 +1,23 @@
 # Velib MCP Server
 
-[![Test Coverage](https://img.shields.io/badge/coverage-check%20actions-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![Tests](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![Security Audit](https://img.shields.io/badge/security-audit%20passing-brightgreen)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/DominicBurkart/velib-mcp#license)
+[![Test Coverage](https://img.shields.io/badge/coverage-check%20actions-brightgreen)](https://github.com/dominicburkart/velib-mcp/actions/workflows/ci.yml)
+[![Tests](https://github.com/dominicburkart/velib-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/dominicburkart/velib-mcp/actions/workflows/ci.yml)
+[![Security Audit](https://img.shields.io/badge/security-audit%20passing-brightgreen)](https://github.com/dominicburkart/velib-mcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](https://github.com/dominicburkart/velib-mcp#license)
 [![Rust Version](https://img.shields.io/badge/rust-latest%20stable-orange)](https://www.rust-lang.org/)
-[![Deploy Status](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml/badge.svg)](https://github.com/DominicBurkart/velib-mcp/actions/workflows/deploy.yml)
+[![Deploy Status](https://github.com/dominicburkart/velib-mcp/actions/workflows/deploy.yml/badge.svg)](https://github.com/dominicburkart/velib-mcp/actions/workflows/deploy.yml)
 
 A high-performance Model Context Protocol (MCP) server providing access to Paris Velib bike sharing data for AI assistants.
 
 ## Quick Start - Install with Claude Code
 
-Install and use the Velib MCP server with Claude Code in one command:
-
 ```bash
-# Install and configure the server (port is read from the PORT env var; default 8080)
+# PORT (default 8080) and IP (default 0.0.0.0) configure the bind address.
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
 claude config add-server velib-mcp "PORT=3000 velib-mcp"
 ```
 
-Then use in Claude Code:
+Then in Claude Code:
 ```
 @velib find nearby stations at latitude 48.8566 longitude 2.3522
 @velib get station by code 16107
@@ -47,49 +45,31 @@ This project exposes two key Parisian datasets through MCP:
 
 ## Integration with Other AI Tools
 
+All integrations share the same install step:
+
+```bash
+cargo install --git https://github.com/dominicburkart/velib-mcp.git
+```
+
 <details>
-<summary>Click to expand integration guides</summary>
+<summary>Per-client configuration</summary>
 
-### ChatGPT
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server (defaults to 0.0.0.0:8080; set PORT/IP to override)
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
-```
+- **ChatGPT / Le Chat / Mistral**: run `velib-mcp` (binds `0.0.0.0:8080`;
+  override with `PORT`/`IP`) and call it via the client's custom-tool / API
+  hooks.
+- **Windsurf**: register the binary in Windsurf's MCP settings.
+- **Cursor**: add to `settings.json`:
 
-### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-```
-Add to Cursor's `settings.json`:
-```json
-{
-  "mcp.servers": {
-    "velib": {
-      "command": "velib-mcp",
-      "env": { "PORT": "8080" }
+  ```json
+  {
+    "mcp.servers": {
+      "velib": {
+        "command": "velib-mcp",
+        "env": { "PORT": "8080" }
+      }
     }
   }
-}
-```
-
-### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls (PORT/IP env vars configure the bind address)
-PORT=8080 velib-mcp
-```
-
-### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+  ```
 
 </details>
 
@@ -121,18 +101,11 @@ cargo deny check licenses bans sources
 
 ### Pre-commit hooks
 
-`cargo-husky` is installed as a dev-dependency and automatically installs a Git
-pre-commit hook the first time `cargo test` (or any cargo command that builds
-dev-dependencies) runs. The hook lives at `.cargo-husky/hooks/pre-commit` and
-enforces:
-
-- `cargo clippy --fix --all-features --all-targets`
-- `cargo fmt --all`
-- `cargo sort`
-- `cargo deny check licenses bans sources` (mirrors the `license-compliance` CI
-  job so license, bans, and source-provenance regressions are caught locally)
-
-Any non-zero exit aborts the commit.
+`cargo-husky` (a dev-dependency) installs a Git pre-commit hook on the first
+build. The hook (`.cargo-husky/hooks/pre-commit`) runs `cargo clippy --fix`,
+`cargo fmt --all`, `cargo sort`, and `cargo deny check licenses bans sources`
+(mirroring the `license-compliance` CI job). Any non-zero exit aborts the
+commit.
 
 ### Podman
 
