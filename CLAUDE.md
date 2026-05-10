@@ -53,16 +53,16 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
   - Disponibilité stations en temps réel
   - Localisations et métadonnées des stations
 - **Déploiement Scaleway** via GitHub Actions
-- **Suite de tests complète** (18+ tests)
+- **Suite de tests** : unitaires + intégration, exécutée par `cargo test`
 - **Validations sécurité** incluant limites zone service 50km
 
 ### Fichiers Importants
-- `/src/main.rs` - Point d'entrée principal
-- `/src/mcp/` - Implémentation protocole MCP
-- `/src/data/` - Client données et cache
-- `/src/types.rs` - Structures de données principales
-- `/docs/api/data_analysis.md` - Analyse données complète
-- `/docs/context/etat_actuel.md` - Suivi statut projet
+- `src/main.rs` — point d'entrée principal
+- `src/mcp/` — implémentation protocole MCP
+- `src/data/` — client données et cache
+- `src/types.rs` — structures de données principales
+- `docs/api/data_analysis.md` — analyse données complète
+- `docs/context/etat_actuel.md` — suivi statut projet
 
 ### Commandes Développement
 ```bash
@@ -209,14 +209,6 @@ done
 - [ ] Intégration validée
 - [ ] Documentation à jour
 ```
-
-### Métriques de Performance
-
-**Gains Attendus vs Processus Linéaire**
-- **Temps cycle**: -40% (parallélisation phases)
-- **Temps attente**: -60% (élimination handoffs)
-- **Qualité code**: +25% (validation continue)
-- **Autonomie équipe**: +50% (rôles auto-suffisants)
 
 ### Intégration Architecture Existante
 
