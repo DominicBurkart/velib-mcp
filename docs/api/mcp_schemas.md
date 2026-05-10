@@ -182,11 +182,9 @@ pub struct AvailabilityFilter {
     /// Type de vélos requis
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bike_type: Option<BikeTypeFilter>,
-    
-    /// Exclure les stations hors service
-    #[serde(default = "default_true")]
-    pub exclude_out_of_service: bool,
 }
+// Note: `find_nearby_stations` always excludes non-operational stations,
+// so an explicit `exclude_out_of_service` flag is intentionally omitted.
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BikeTypeFilter {
