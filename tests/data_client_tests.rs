@@ -32,10 +32,11 @@ async fn test_cache_cleanup() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_real_api_fetch_with_timeout() {
     let _guard = TEST_MUTEX.lock().await;
 
-    let mut client = VelibDataClient::new();
+    let client = VelibDataClient::new();
 
     // Test with a reasonable timeout to avoid hanging tests
     let result = timeout(Duration::from_secs(30), client.fetch_reference_stations()).await;
@@ -72,10 +73,11 @@ async fn test_real_api_fetch_with_timeout() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_station_by_code_not_found() {
     let _guard = TEST_MUTEX.lock().await;
 
-    let mut client = VelibDataClient::new();
+    let client = VelibDataClient::new();
 
     // Test with a timeout and non-existent station code
     let result = timeout(

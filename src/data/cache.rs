@@ -221,4 +221,63 @@ mod tests {
         assert_eq!(cache.get(&99).await, Some("world".to_string()));
         assert_eq!(cache.get(&0).await, None);
     }
+
+    // --- TTL wall-clock expiry tests (added by PR #60) ---
+    // These use actual sleep to verify real-time expiry behaviour via chrono wall-clock.
+
+    #[tokio::test]
+    async fn test_cache_value_expires_after_ttl() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::milliseconds(100));
+        cache.insert("key".to_string(), "hello".to_string()).await;
+
+        // Value should be present immediately
+        assert!(cache.get(&"key".to_string()).await.is_some());
+
+        // Wait for TTL to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        // Value should now be gone
+        let result = cache.get(&"key".to_string()).await;
+        assert_eq!(result, None, "cache entry should have expired");
+    }
+
+    #[tokio::test]
+    async fn test_cache_cleanup_removes_expired_entries() {
+        let cache: InMemoryCache<String, String> =
+            InMemoryCache::new(Duration::milliseconds(100));
+
+        cache.insert("expired".to_string(), "old".to_string()).await;
+        // Insert a second entry with a longer TTL
+        cache
+            .insert_with_ttl(
+                "fresh".to_string(),
+                "new".to_string(),
+                Duration::seconds(60),
+            )
+            .await;
+
+        // Wait for the short-TTL entry to expire
+        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+        assert_eq!(cache.size().await, 2); // Both entries still present before cleanup
+
+        cache.cleanup_expired().await;
+
+        assert_eq!(
+            cache.size().await,
+            1,
+            "expired entry should have been removed"
+        );
+        assert_eq!(
+            cache.get(&"fresh".to_string()).await,
+            Some("new".to_string()),
+            "non-expired entry should still be present"
+        );
+        assert_eq!(
+            cache.get(&"expired".to_string()).await,
+            None,
+            "expired entry should not be retrievable"
+        );
+    }
 }
