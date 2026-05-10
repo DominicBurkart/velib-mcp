@@ -240,21 +240,13 @@ impl Default for RetryPolicy {
     }
 }
 
-/// Helper function to extract retry-after header from reqwest error
-pub fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
+/// Extract the `Retry-After` header (seconds) from a response, if present and parseable.
+fn extract_retry_after_from_response(response: &reqwest::Response) -> Option<u64> {
     response
         .headers()
         .get("retry-after")
         .and_then(|value| value.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
-}
-
-/// Helper function to create rate limited error from HTTP response
-pub fn create_rate_limited_error(response: &reqwest::Response) -> Error {
-    let retry_after = extract_retry_after_from_response(response);
-    Error::RateLimited {
-        retry_after_seconds: retry_after,
-    }
 }
 
 /// Wrapper for making HTTP requests with retry logic
@@ -292,7 +284,9 @@ impl RetryableHttpClient {
                 url,
                 retry_after.map_or_else(String::new, |seconds| format!(", retry after {seconds}s"))
             );
-            return Err(create_rate_limited_error(&response));
+            return Err(Error::RateLimited {
+                retry_after_seconds: retry_after,
+            });
         }
 
         if !response.status().is_success() {
@@ -328,12 +322,6 @@ impl RetryableHttpClient {
                 Self::check_response(response, url)
             })
             .await
-    }
-
-    /// Get the underlying reqwest client
-    #[must_use]
-    pub fn client(&self) -> &reqwest::Client {
-        &self.client
     }
 }
 
