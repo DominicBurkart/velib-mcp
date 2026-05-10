@@ -14,9 +14,9 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 Install and use the Velib MCP server with Claude Code in one command:
 
 ```bash
-# Install and configure the server
+# Install and configure the server (port is read from the PORT env var; default 8080)
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-claude config add-server velib-mcp "cargo run --release -- --port 3000"
+claude config add-server velib-mcp "PORT=3000 velib-mcp"
 ```
 
 Then use in Claude Code:
@@ -54,7 +54,7 @@ This project exposes two key Parisian datasets through MCP:
 ```bash
 # Install server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server on port 8080
+# Run server (defaults to 0.0.0.0:8080; set PORT/IP to override)
 velib-mcp
 # Configure in ChatGPT Custom Instructions or use via API
 ```
@@ -63,12 +63,14 @@ velib-mcp
 ```bash
 # Install server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Add to Cursor's settings.json
+```
+Add to Cursor's `settings.json`:
+```json
 {
   "mcp.servers": {
     "velib": {
       "command": "velib-mcp",
-      "args": ["--port", "8080"]
+      "env": { "PORT": "8080" }
     }
   }
 }
@@ -78,8 +80,8 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 ```bash
 # Install server
 cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls
-velib-mcp --port 8080
+# Run server and use via API calls (PORT/IP env vars configure the bind address)
+PORT=8080 velib-mcp
 ```
 
 ### Windsurf
