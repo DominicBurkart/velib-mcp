@@ -80,7 +80,11 @@ impl Default for RetryConfig {
     }
 }
 
-/// Strategy for calculating retry delays
+/// Strategy for calculating retry delays.
+///
+/// Currently only exponential backoff is exercised by the codebase. The enum
+/// shape is retained as a single-variant extension point: future strategies
+/// (e.g. decorrelated jitter) can be added here without churning call sites.
 #[derive(Debug, Clone)]
 pub enum RetryStrategy {
     /// Exponential backoff with optional jitter
@@ -91,11 +95,6 @@ pub enum RetryStrategy {
         max_delay: u64,
         /// Whether to add jitter (up to 25% of calculated delay)
         use_jitter: bool,
-    },
-    /// Fixed delay between retries
-    FixedDelay {
-        /// Delay in seconds
-        delay: u64,
     },
 }
 
@@ -120,7 +119,6 @@ impl RetryStrategy {
                     Duration::from_secs(delay)
                 }
             }
-            RetryStrategy::FixedDelay { delay } => Duration::from_secs(*delay),
         }
     }
 }
@@ -360,15 +358,6 @@ mod tests {
         assert_eq!(strategy.calculate_delay(2), Duration::from_secs(4));
         assert_eq!(strategy.calculate_delay(3), Duration::from_secs(8));
         assert_eq!(strategy.calculate_delay(4), Duration::from_secs(10)); // Capped at max_delay
-    }
-
-    #[test]
-    fn test_fixed_delay_calculation() {
-        let strategy = RetryStrategy::FixedDelay { delay: 5 };
-
-        assert_eq!(strategy.calculate_delay(0), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(1), Duration::from_secs(5));
-        assert_eq!(strategy.calculate_delay(2), Duration::from_secs(5));
     }
 
     #[test]
