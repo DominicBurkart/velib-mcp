@@ -78,41 +78,13 @@ impl VelibDataClient {
 
         info!("Fetching reference stations from Paris Open Data API");
 
-        let mut all_stations = Vec::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_STATIONS_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
+        let mut all_stations: Vec<StationReference> = Vec::new();
+        fetch_paginated(&self.client, VELIB_STATIONS_URL, |record| {
+            if let Ok(station) = parse_reference_station(record) {
+                all_stations.push(station);
             }
-
-            for record in records {
-                if let Ok(station) = parse_reference_station(record) {
-                    all_stations.push(station);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
+        })
+        .await?;
 
         info!("Fetched {} reference stations", all_stations.len());
 
@@ -136,41 +108,13 @@ impl VelibDataClient {
 
         info!("Fetching real-time status from Paris Open Data API");
 
-        let mut all_status = HashMap::new();
-        let mut offset = 0;
-        let limit = 100; // API limit
-
-        loop {
-            let query_params = &[
-                ("limit", &limit.to_string()),
-                ("offset", &offset.to_string()),
-            ];
-
-            let response = self
-                .client
-                .get_with_query(VELIB_REALTIME_URL, query_params)
-                .await?;
-
-            let json: Value = response.json().await?;
-            let records = json["results"]
-                .as_array()
-                .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
-
-            if records.is_empty() {
-                break; // No more records
+        let mut all_status: HashMap<String, RealTimeStatus> = HashMap::new();
+        fetch_paginated(&self.client, VELIB_REALTIME_URL, |record| {
+            if let Ok((station_code, status)) = parse_realtime_status(record) {
+                all_status.insert(station_code, status);
             }
-
-            for record in records {
-                if let Ok((station_code, status)) = parse_realtime_status(record) {
-                    all_status.insert(station_code, status);
-                }
-            }
-
-            offset += limit;
-            if records.len() < limit {
-                break; // Last page
-            }
-        }
+        })
+        .await?;
 
         info!("Fetched real-time status for {} stations", all_status.len());
 
@@ -233,6 +177,57 @@ impl VelibDataClient {
         let realtime_size = self.realtime_cache.size().await;
         (reference_size, realtime_size)
     }
+}
+
+/// Number of records per page when calling the Paris Open Data v2.1 API.
+/// The API itself enforces a server-side cap of 100; using the same value
+/// here keeps the request count minimal.
+const PAGE_LIMIT: usize = 100;
+
+/// Drive the standard "loop until results array shrinks or empties" pagination
+/// pattern used by both Paris Open Data endpoints.
+///
+/// The `consume` callback is invoked once per record; how it stores or
+/// transforms the record is up to the caller (this lets `fetch_reference_stations`
+/// build a `Vec` while `fetch_realtime_status` builds a `HashMap` without
+/// allocating an intermediate collection).
+async fn fetch_paginated<F>(
+    client: &RetryableHttpClient,
+    url: &str,
+    mut consume: F,
+) -> Result<()>
+where
+    F: FnMut(&Value),
+{
+    let mut offset: usize = 0;
+
+    loop {
+        let query_params = &[
+            ("limit", &PAGE_LIMIT.to_string()),
+            ("offset", &offset.to_string()),
+        ];
+
+        let response = client.get_with_query(url, query_params).await?;
+        let json: Value = response.json().await?;
+        let records = json["results"]
+            .as_array()
+            .ok_or_else(|| Error::Internal(anyhow::anyhow!("Invalid API response format")))?;
+
+        if records.is_empty() {
+            break;
+        }
+
+        for record in records {
+            consume(record);
+        }
+
+        offset += PAGE_LIMIT;
+        if records.len() < PAGE_LIMIT {
+            break; // Last page
+        }
+    }
+
+    Ok(())
 }
 
 /// Parse one reference station record from the Paris Open Data API.
