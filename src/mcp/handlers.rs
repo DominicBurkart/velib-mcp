@@ -121,6 +121,29 @@ fn journey_confidence_score(
     score.clamp(0.1, 1.0)
 }
 
+/// Check whether a station name matches a search query.
+///
+/// Both the name and the query are case-folded (via `to_lowercase`) and
+/// canonically composed (NFC) before comparison. This ensures that searches
+/// are diacritic-insensitive in the sense that pre-composed and decomposed
+/// forms of the same character compare equal (e.g. `'é'` written as `U+00E9`
+/// matches `'é'` written as `U+0065 U+0301`). It does **not** strip accents:
+/// a query of `"hotel"` will not match a name of `"Hôtel"`, which preserves
+/// the upstream Paris Open Data dataset's accented spellings.
+///
+/// When `fuzzy` is true, matching is substring (`contains`); when false,
+/// matching is prefix (`starts_with`). This mirrors the public `fuzzy` flag
+/// exposed by the `search_stations_by_name` MCP tool.
+fn name_matches_query(name: &str, query: &str, fuzzy: bool) -> bool {
+    let query_normalized: String = query.to_lowercase().nfc().collect();
+    let name_normalized: String = name.to_lowercase().nfc().collect();
+    if fuzzy {
+        name_normalized.contains(&query_normalized)
+    } else {
+        name_normalized.starts_with(&query_normalized)
+    }
+}
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -277,21 +300,10 @@ impl McpToolHandler {
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
         let mut matching_stations: Vec<VelibStation> = all_stations
             .into_iter()
             .filter(|station| {
-                let name_normalized = station
-                    .reference
-                    .name
-                    .to_lowercase()
-                    .nfc()
-                    .collect::<String>();
-                if input.fuzzy {
-                    name_normalized.contains(&query_normalized)
-                } else {
-                    name_normalized.starts_with(&query_normalized)
-                }
+                name_matches_query(&station.reference.name, &input.query, input.fuzzy)
             })
             .collect();
 
@@ -818,5 +830,111 @@ mod tests {
             (journey_confidence_score(0, 0, 0) - 1.0).abs() < 1e-9,
             "(0, 0, 0) should be 1.0"
         );
+    }
+
+    // --- name_matches_query ---
+    //
+    // The `search_stations_by_name` tool routes through this helper. The
+    // invariants below are the ones a user actually depends on when typing a
+    // free-form query against the Paris station catalogue, which contains
+    // pre-composed accented characters like "Hôtel de Ville" and
+    // "Bibliothèque François Mitterrand".
+
+    #[test]
+    fn name_match_is_case_insensitive() {
+        // Users type "chatelet" or "CHATELET"; the catalogue stores
+        // "Chatelet". Both must match identically.
+        assert!(name_matches_query("Chatelet", "chatelet", true));
+        assert!(name_matches_query("Chatelet", "CHATELET", true));
+        assert!(name_matches_query("Chatelet", "ChAtElEt", false));
+    }
+
+    #[test]
+    fn fuzzy_true_matches_substring() {
+        // Fuzzy mode is documented as substring match: the query may appear
+        // anywhere in the name. This is the default for the public tool.
+        assert!(name_matches_query("Place de la Bastille", "Bastille", true));
+        assert!(name_matches_query("Place de la Bastille", "de la", true));
+        // Substring at the very end must also match.
+        assert!(name_matches_query("Place de la Bastille", "tille", true));
+    }
+
+    #[test]
+    fn fuzzy_false_only_matches_prefix() {
+        // Non-fuzzy mode is prefix match: the query must start the name.
+        assert!(name_matches_query("Bastille", "Bast", false));
+        // A substring that is *not* a prefix must be rejected when fuzzy=false.
+        assert!(!name_matches_query(
+            "Place de la Bastille",
+            "Bastille",
+            false
+        ));
+        // Exact-length prefix is still a prefix.
+        assert!(name_matches_query("Bastille", "Bastille", false));
+    }
+
+    #[test]
+    fn nfc_normalization_matches_decomposed_input() {
+        // The Paris dataset stores pre-composed characters (NFC). A query
+        // typed with combining diacritics (NFD) must still match: both sides
+        // are normalized to NFC before comparison. This locks in the
+        // behavior that previously lived inline in `search_stations_by_name`.
+        let precomposed = "Hôtel de Ville"; // 'ô' as a single code point
+        let decomposed_query = "Ho\u{0302}tel"; // 'o' + combining circumflex
+        assert!(
+            name_matches_query(precomposed, decomposed_query, true),
+            "NFC normalization should make decomposed query match pre-composed name"
+        );
+        assert!(
+            name_matches_query(precomposed, decomposed_query, false),
+            "NFC normalization must also apply in prefix mode"
+        );
+    }
+
+    #[test]
+    fn nfc_normalization_matches_when_name_is_decomposed() {
+        // Symmetric to the previous test: even if the dataset row arrived in
+        // NFD (combining marks), the search must still find it given an NFC
+        // query. Guards against asymmetric normalization regressions.
+        let decomposed_name = "Ho\u{0302}tel de Ville";
+        let precomposed_query = "Hôtel";
+        assert!(name_matches_query(decomposed_name, precomposed_query, true));
+        assert!(name_matches_query(
+            decomposed_name,
+            precomposed_query,
+            false
+        ));
+    }
+
+    #[test]
+    fn accented_query_does_not_strip_diacritics() {
+        // The helper does NFC normalization but does NOT remove diacritics.
+        // A bare ASCII "hotel" must not match "Hôtel": users searching for
+        // accented stations get the dataset's accented forms back; users
+        // typing the accent get the same. This documents the deliberate
+        // boundary of the current behavior so a future "fold accents" change
+        // is recognized as a behavior change, not a regression-fix.
+        assert!(!name_matches_query("Hôtel de Ville", "hotel", true));
+        assert!(!name_matches_query("Hôtel de Ville", "hotel", false));
+        // But matching with the diacritic preserved works:
+        assert!(name_matches_query("Hôtel de Ville", "hôtel", true));
+    }
+
+    #[test]
+    fn no_match_returns_false() {
+        // Sanity: queries that share no substring must not match in either
+        // mode. This guards against accidental empty-string fallthrough.
+        assert!(!name_matches_query("Bastille", "Concorde", true));
+        assert!(!name_matches_query("Bastille", "Concorde", false));
+    }
+
+    #[test]
+    fn empty_query_matches_everything() {
+        // Both `str::contains("")` and `str::starts_with("")` return true.
+        // The handler enforces a 2-char minimum on `input.query`, but this
+        // pure helper does not — the test documents the pure-function
+        // behavior so callers can rely on it.
+        assert!(name_matches_query("Bastille", "", true));
+        assert!(name_matches_query("Bastille", "", false));
     }
 }
