@@ -8,7 +8,7 @@ Ce document définit les interfaces MCP (Model Context Protocol) exposées par l
 
 ### Serveur MCP
 - **Nom** : `velib-mcp`
-- **Version** : `1.0.0`
+- **Version** : voir [`Cargo.toml`](../../Cargo.toml)
 - **Description** : Serveur MCP pour les données Velib Paris
 - **Capacités** : `resources`, `tools`
 
@@ -51,7 +51,7 @@ application/json
   ],
   "metadata": {
     "total_stations": 1400,
-    "last_updated": "2025-06-14T06:00:00Z"
+    "last_updated": "2026-04-23T06:00:00Z"
   }
 }
 ```
@@ -88,12 +88,12 @@ application/json
         "installed": true
       },
       "status": "Operational",
-      "last_updated": "2025-06-14T19:31:22Z"
+      "last_updated": "2026-04-23T19:31:22Z"
     }
   ],
   "metadata": {
     "data_freshness": "Fresh",
-    "response_time": "2025-06-14T19:31:25Z"
+    "response_time": "2026-04-23T19:31:25Z"
   }
 }
 ```
@@ -503,7 +503,7 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
+X-RateLimit-Reset: 1776067200
 ```
 
 ## Authentification
@@ -528,17 +528,17 @@ velib://health
 ```json
 {
   "status": "healthy",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "uptime_seconds": 86400,
   "data_sources": {
     "real_time": {
       "status": "healthy",
-      "last_update": "2025-06-14T19:31:22Z",
+      "last_update": "2026-04-23T19:31:22Z",
       "lag_seconds": 45
     },
     "reference": {
-      "status": "healthy", 
-      "last_update": "2025-06-14T06:00:00Z"
+      "status": "healthy",
+      "last_update": "2026-04-23T06:00:00Z"
     }
   },
   "cache_stats": {

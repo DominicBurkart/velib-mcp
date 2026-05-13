@@ -49,8 +49,8 @@ https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/velib-disponibilite-
 #### Données Temporelles
 | Champ | Type | Format | Exemple |
 |-------|------|--------|---------|
-| `duedate` | string | ISO 8601 | "2025-06-14T19:31:22+00:00" |
-| `record_timestamp` | string | ISO 8601 | "2025-06-14T19:31:22+00:00" |
+| `duedate` | string | ISO 8601 | "2026-04-23T19:31:22+00:00" |
+| `record_timestamp` | string | ISO 8601 | "2026-04-23T19:31:22+00:00" |
 
 #### Informations Administratives
 | Champ | Type | Description |
