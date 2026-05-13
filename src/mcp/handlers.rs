@@ -90,6 +90,39 @@ where
     }
 }
 
+/// Compute a confidence score for a pickup/dropoff pair based on how far the
+/// rider has to walk relative to their `max_walk_distance` budget.
+///
+/// The score is `1 - 0.5 * mean(pickup_ratio, dropoff_ratio)`, where each
+/// ratio is the corresponding walking distance divided by the budget. The
+/// result is clamped to `[0.1, 1.0]`:
+/// * stations exactly at the origin/destination yield `1.0`,
+/// * stations at the budget boundary on both sides yield `0.5`,
+/// * the floor (`0.1`) prevents fully-degenerate-but-valid recommendations
+///   from being silently zeroed out.
+///
+/// `max_walk_meters == 0` is treated as "no budget"; in that case any
+/// non-zero walking distance yields the floor.
+fn journey_confidence_score(
+    pickup_distance_meters: u32,
+    dropoff_distance_meters: u32,
+    max_walk_meters: u32,
+) -> f64 {
+    if max_walk_meters == 0 {
+        return if pickup_distance_meters == 0 && dropoff_distance_meters == 0 {
+            1.0
+        } else {
+            0.1
+        };
+    }
+    let max_walk = f64::from(max_walk_meters);
+    let pickup_ratio = f64::from(pickup_distance_meters) / max_walk;
+    let dropoff_ratio = f64::from(dropoff_distance_meters) / max_walk;
+    let score = 1.0 - f64::midpoint(pickup_ratio, dropoff_ratio) * 0.5;
+    score.clamp(0.1, 1.0)
+}
+
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -354,19 +387,18 @@ impl McpToolHandler {
             let best_pickup = &pickup_stations[0];
             let best_dropoff = &dropoff_stations[0];
 
-            // Calculate confidence score based on walking distances
-            let max_walk = f64::from(preferences.max_walk_distance);
-            let pickup_walk_ratio = f64::from(best_pickup.straight_line_distance_meters) / max_walk;
-            let dropoff_walk_ratio =
-                f64::from(best_dropoff.straight_line_distance_meters) / max_walk;
-            let confidence_score = 1.0 - f64::midpoint(pickup_walk_ratio, dropoff_walk_ratio) * 0.5;
+            let confidence_score = journey_confidence_score(
+                best_pickup.straight_line_distance_meters,
+                best_dropoff.straight_line_distance_meters,
+                preferences.max_walk_distance,
+            );
 
             recommendations.push(JourneyRecommendation {
                 pickup_station: best_pickup.station.clone(),
                 dropoff_station: best_dropoff.station.clone(),
                 straight_line_to_pickup_meters: best_pickup.straight_line_distance_meters,
                 straight_line_from_dropoff_meters: best_dropoff.straight_line_distance_meters,
-                confidence_score: confidence_score.clamp(0.1, 1.0),
+                confidence_score,
             });
         }
 
@@ -799,6 +831,73 @@ mod tests {
         assert!(
             byte_len > MAX_SEARCH_QUERY_LEN,
             "byte check would wrongly reject"
+        );
+    }
+
+    // --- journey_confidence_score ---
+
+    #[test]
+    fn confidence_score_is_one_when_pickup_and_dropoff_are_at_zero_distance() {
+        // Stations exactly at the origin/destination must yield the maximum
+        // score (1.0): no walking required.
+        let score = journey_confidence_score(0, 0, 500);
+        assert!((score - 1.0).abs() < 1e-9, "expected 1.0, got {score}");
+    }
+
+    #[test]
+    fn confidence_score_is_clamped_to_floor_when_walks_at_budget() {
+        // Both walks at the budget gives mean-ratio of 1.0, so the unclamped
+        // score is 0.5; we keep it at 0.5 (above the 0.1 floor).
+        let score = journey_confidence_score(500, 500, 500);
+        assert!((score - 0.5).abs() < 1e-9, "expected 0.5, got {score}");
+    }
+
+    #[test]
+    fn confidence_score_clamps_to_floor_when_walks_exceed_budget() {
+        // Stations farther than the budget on both sides drive the formula
+        // below the 0.1 floor, which the clamp must prevent.
+        let score = journey_confidence_score(2_000, 2_000, 500);
+        assert!(score >= 0.1, "score {score} below floor 0.1");
+        assert!(score <= 1.0, "score {score} above ceiling 1.0");
+    }
+
+    #[test]
+    fn confidence_score_in_unit_range_for_arbitrary_inputs() {
+        // Invariant: regardless of inputs (including zero budget and absurd
+        // walks), the score must stay inside [0.1, 1.0].
+        let cases = [
+            (0u32, 0u32, 0u32),
+            (1, 0, 1),
+            (0, 1, 1),
+            (50, 100, 500),
+            (5_000, 5_000, 100),
+            (u32::MAX, u32::MAX, u32::MAX),
+        ];
+        for (pickup, dropoff, max_walk) in cases {
+            let score = journey_confidence_score(pickup, dropoff, max_walk);
+            assert!(
+                (0.1..=1.0).contains(&score),
+                "score {score} out of [0.1, 1.0] for ({pickup}, {dropoff}, {max_walk})"
+            );
+        }
+    }
+
+    #[test]
+    fn confidence_score_handles_zero_budget_branch() {
+        // Zero budget with any non-zero walk -> floor.
+        assert!(
+            (journey_confidence_score(1, 0, 0) - 0.1).abs() < 1e-9,
+            "non-zero pickup with 0 budget should be the floor"
+        );
+        assert!(
+            (journey_confidence_score(0, 1, 0) - 0.1).abs() < 1e-9,
+            "non-zero dropoff with 0 budget should be the floor"
+        );
+        // Zero budget with both walks at zero -> 1.0 (perfect placement,
+        // budget irrelevant).
+        assert!(
+            (journey_confidence_score(0, 0, 0) - 1.0).abs() < 1e-9,
+            "(0, 0, 0) should be 1.0"
         );
     }
 }

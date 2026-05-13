@@ -2,18 +2,6 @@ use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeographicQuery {
-    pub center: Coordinates,
-    pub radius_meters: u32,
-    #[serde(default = "default_limit")]
-    pub limit: u16,
-}
-
-fn default_limit() -> u16 {
-    50
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,6 +16,18 @@ pub struct AvailabilityFilter {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeographicQuery {
+    pub center: Coordinates,
+    pub radius_meters: u32,
+    #[serde(default = "default_limit")]
+    pub limit: u16,
+}
+
+fn default_limit() -> u16 {
+    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
