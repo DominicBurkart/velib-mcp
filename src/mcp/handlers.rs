@@ -781,7 +781,10 @@ mod tests {
         assert_eq!(byte_len, 102);
         // char_count is within limit; byte_len is not — char guard must pass.
         assert!(char_count <= MAX_SEARCH_QUERY_LEN, "should be accepted");
-        assert!(byte_len > MAX_SEARCH_QUERY_LEN, "byte check would wrongly reject");
+        assert!(
+            byte_len > MAX_SEARCH_QUERY_LEN,
+            "byte check would wrongly reject"
+        );
     }
 
     /// 50 × 'é' + 'x' = 51 chars, 101 bytes. Must be *accepted*.
@@ -793,6 +796,9 @@ mod tests {
         assert_eq!(char_count, 51);
         assert_eq!(byte_len, 101);
         assert!(char_count <= MAX_SEARCH_QUERY_LEN, "should be accepted");
-        assert!(byte_len > MAX_SEARCH_QUERY_LEN, "byte check would wrongly reject");
+        assert!(
+            byte_len > MAX_SEARCH_QUERY_LEN,
+            "byte check would wrongly reject"
+        );
     }
 }

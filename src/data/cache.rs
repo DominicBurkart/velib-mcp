@@ -287,8 +287,8 @@ mod tests {
     async fn hit_rate_one_hit_one_miss() {
         let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
         cache.insert("k".to_string(), 1).await;
-        cache.get(&"k".to_string()).await;       // hit
-        cache.get(&"missing".to_string()).await;  // miss
+        cache.get(&"k".to_string()).await; // hit
+        cache.get(&"missing".to_string()).await; // miss
         assert!((cache.hit_rate() - 0.5).abs() < 1e-9);
         assert_eq!(cache.stats(), (1, 1));
     }

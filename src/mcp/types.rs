@@ -1,4 +1,4 @@
-use crate::types::{BikeTypeFilter, Coordinates, DataSource, VelibStation};
+use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +53,8 @@ pub struct PaginationInfo {
 pub struct ResponseMetadata {
     pub response_time: DateTime<Utc>,
     pub processing_time_ms: u64,
-    pub real_time_source: DataSource,
-    pub reference_source: DataSource,
+    pub real_time_source: String,
+    pub reference_source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +240,9 @@ pub struct JsonRpcRequest {
     pub jsonrpc: String,
     pub id: serde_json::Value,
     pub method: String,
+    /// JSON-RPC 2.0 permits omitting `params` entirely; default to null so
+    /// parameterless calls like `tools/list` need not include an empty object.
+    #[serde(default)]
     pub params: serde_json::Value,
 }
 
