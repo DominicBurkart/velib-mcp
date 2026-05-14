@@ -122,7 +122,6 @@ fn journey_confidence_score(
     score.clamp(0.1, 1.0)
 }
 
-
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
