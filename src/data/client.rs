@@ -194,19 +194,10 @@ impl VelibDataClient {
         }
 
         let realtime_status = self.fetch_realtime_status().await?;
-
-        let stations = reference_stations
-            .into_iter()
-            .map(|ref_station| {
-                let mut station = VelibStation::new(ref_station);
-                if let Some(rt_status) = realtime_status.get(&station.reference.station_code) {
-                    station = station.with_real_time(rt_status.clone());
-                }
-                station
-            })
-            .collect();
-
-        Ok(stations)
+        Ok(merge_reference_and_realtime(
+            reference_stations,
+            &realtime_status,
+        ))
     }
 
     /// Get a specific station by code
@@ -233,6 +224,29 @@ impl VelibDataClient {
         let realtime_size = self.realtime_cache.size().await;
         (reference_size, realtime_size)
     }
+}
+
+/// Join reference stations with their real-time status by station code.
+///
+/// Extracted as a free function (not a method) so the merge logic can be
+/// unit-tested against fixtures without any network wiring. A reference
+/// station with no matching real-time entry keeps `real_time == None`;
+/// real-time entries with no matching reference station are dropped, since
+/// a station the reference catalog does not know about cannot be located.
+pub(crate) fn merge_reference_and_realtime(
+    reference_stations: Vec<StationReference>,
+    realtime_status: &HashMap<String, RealTimeStatus>,
+) -> Vec<VelibStation> {
+    reference_stations
+        .into_iter()
+        .map(|ref_station| {
+            let station = VelibStation::new(ref_station);
+            match realtime_status.get(&station.reference.station_code) {
+                Some(rt_status) => station.with_real_time(rt_status.clone()),
+                None => station,
+            }
+        })
+        .collect()
 }
 
 /// Parse one reference station record from the Paris Open Data API.
@@ -422,5 +436,90 @@ mod tests {
     fn parse_realtime_status_rejects_missing_station_code() {
         let record = json!({"is_installed": "OUI"});
         assert!(parse_realtime_status(&record).is_err());
+    }
+
+    // --- merge_reference_and_realtime ---
+
+    fn reference(code: &str) -> StationReference {
+        StationReference {
+            station_code: code.to_string(),
+            name: format!("Station {code}"),
+            coordinates: crate::types::Coordinates::new(48.85, 2.35),
+            capacity: 20,
+            capabilities: ServiceCapabilities::default(),
+        }
+    }
+
+    fn realtime(mechanical: u16) -> RealTimeStatus {
+        RealTimeStatus::new(
+            BikeAvailability::new(mechanical, 0),
+            10,
+            StationStatus::Open,
+            Utc::now(),
+        )
+    }
+
+    #[test]
+    fn merge_attaches_realtime_to_matching_reference() {
+        let refs = vec![reference("A"), reference("B")];
+        let mut rt = HashMap::new();
+        rt.insert("A".to_string(), realtime(5));
+        rt.insert("B".to_string(), realtime(7));
+
+        let merged = merge_reference_and_realtime(refs, &rt);
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].reference.station_code, "A");
+        assert_eq!(merged[0].real_time.as_ref().unwrap().bikes.mechanical, 5);
+        assert_eq!(merged[1].real_time.as_ref().unwrap().bikes.mechanical, 7);
+    }
+
+    #[test]
+    fn merge_leaves_realtime_none_when_no_match() {
+        let refs = vec![reference("A"), reference("B")];
+        let mut rt = HashMap::new();
+        rt.insert("A".to_string(), realtime(5));
+        // No entry for "B".
+
+        let merged = merge_reference_and_realtime(refs, &rt);
+
+        assert!(merged[0].real_time.is_some());
+        assert!(
+            merged[1].real_time.is_none(),
+            "station with no real-time entry must keep real_time == None"
+        );
+    }
+
+    #[test]
+    fn merge_drops_realtime_entries_without_reference() {
+        // A real-time row for a station absent from the reference catalog
+        // cannot be located, so it must not appear in the output.
+        let refs = vec![reference("A")];
+        let mut rt = HashMap::new();
+        rt.insert("A".to_string(), realtime(1));
+        rt.insert("ghost".to_string(), realtime(9));
+
+        let merged = merge_reference_and_realtime(refs, &rt);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].reference.station_code, "A");
+    }
+
+    #[test]
+    fn merge_empty_reference_yields_empty() {
+        let rt = HashMap::new();
+        let merged = merge_reference_and_realtime(Vec::new(), &rt);
+        assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn merge_preserves_reference_order() {
+        let refs = vec![reference("C"), reference("A"), reference("B")];
+        let merged = merge_reference_and_realtime(refs, &HashMap::new());
+        let codes: Vec<&str> = merged
+            .iter()
+            .map(|s| s.reference.station_code.as_str())
+            .collect();
+        assert_eq!(codes, ["C", "A", "B"]);
     }
 }
