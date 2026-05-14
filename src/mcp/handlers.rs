@@ -262,7 +262,11 @@ impl McpToolHandler {
     ) -> Result<SearchStationsByNameOutput> {
         let start_time = Instant::now();
 
-        if input.query.len() < 2 {
+        // Use chars().count() to count Unicode codepoints, not bytes.
+        // A single multi-byte character (e.g. `é`, 2 UTF-8 bytes) has len()==2
+        // but chars().count()==1, so byte-counting would silently bypass this
+        // guard for such inputs.
+        if input.query.chars().count() < 2 {
             return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
         }
 
