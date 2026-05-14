@@ -122,6 +122,7 @@ fn journey_confidence_score(
     score.clamp(0.1, 1.0)
 }
 
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -769,68 +770,100 @@ mod tests {
 
     // --- search_stations_by_name: length validation (offline, no network) ---
     //
-    // These tests exercise the byte-vs-char fix directly. The handler rejects
-    // queries outside [2, MAX_SEARCH_QUERY_LEN] measured in Unicode code points,
-    // not UTF-8 bytes. All assertions use Error::Validation so they also verify
-    // the error variant is correct.
+    // These tests call the actual handler method with queries that trigger the
+    // early-return length guards (before any network I/O), confirming that the
+    // guard in the handler itself — not just the underlying char-count math —
+    // rejects or accepts the input. The guards run before `get_all_stations`,
+    // so no network connection is required.
 
-    fn make_search_input(query: &str) -> SearchStationsByNameInput {
-        SearchStationsByNameInput {
-            query: query.to_string(),
+    /// A 1-character query must be rejected with Error::Validation regardless
+    /// of byte width. Exercises the `char_count < 2` guard in the handler.
+    #[tokio::test]
+    async fn search_rejects_one_char_query() {
+        let handler = McpToolHandler::new();
+        let input = SearchStationsByNameInput {
+            query: "a".to_string(),
             limit: 10,
             fuzzy: true,
+        };
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                assert!(msg.contains("too short"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Err(Error::Validation), got {other:?}"),
         }
     }
 
-    /// A 1-character query must be rejected regardless of byte width.
-    #[test]
-    fn search_rejects_one_char_query() {
-        let char_count = make_search_input("a").query.chars().count();
-        assert_eq!(char_count, 1);
-        // Simulate the guard directly (the handler requires async + network).
-        assert!(char_count < 2, "guard should trigger");
+    /// A 101-character ASCII query (101 bytes) must be rejected with
+    /// Error::Validation. Exercises the `char_count > MAX_SEARCH_QUERY_LEN` guard.
+    #[tokio::test]
+    async fn search_rejects_101_char_query() {
+        let handler = McpToolHandler::new();
+        let input = SearchStationsByNameInput {
+            query: "a".repeat(101),
+            limit: 10,
+            fuzzy: true,
+        };
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                assert!(msg.contains("too long"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Err(Error::Validation), got {other:?}"),
+        }
     }
 
-    /// A 101-character ASCII query (101 bytes) must be rejected.
-    #[test]
-    fn search_rejects_101_char_query() {
-        let q: String = "a".repeat(101);
-        let char_count = q.chars().count();
-        assert_eq!(char_count, 101);
-        assert!(char_count > MAX_SEARCH_QUERY_LEN, "guard should trigger");
+    /// 51 × 'é' = 51 chars, 102 bytes. Must NOT be rejected by the length guard
+    /// (51 <= 100 chars), even though the raw byte length (102) exceeds 100.
+    /// This is the canonical regression test for the byte-vs-char fix: if the
+    /// guard mistakenly used `.len()` instead of `.chars().count()`, this query
+    /// would be wrongly rejected before reaching the network.
+    ///
+    /// Because the query does pass validation, the handler proceeds to
+    /// `get_all_stations` which contacts the network. In the test environment
+    /// there is no live API, so we expect an `Err` from the HTTP layer — but
+    /// crucially NOT `Error::Validation`, which proves the length guard passed.
+    #[tokio::test]
+    async fn search_accepts_51_accented_chars_102_bytes() {
+        let handler = McpToolHandler::new();
+        let query: String = "é".repeat(51); // 51 chars, 102 UTF-8 bytes
+        assert_eq!(query.chars().count(), 51);
+        assert_eq!(query.len(), 102);
+        let input = SearchStationsByNameInput {
+            query,
+            limit: 10,
+            fuzzy: true,
+        };
+        // The length guard must not fire. Any error that does occur must not be
+        // a Validation error — it will be a network/IO error from the missing
+        // live API connection.
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                panic!("length guard wrongly fired for 51-char query: {msg}");
+            }
+            // Any other result (Ok or non-Validation Err) means the guard passed.
+            _ => {}
+        }
     }
 
-    /// 51 × 'é' = 51 chars, 102 bytes. Must be *accepted* by the char guard
-    /// (51 <= 100) even though the byte length (102) exceeds 100.
-    /// This is the canonical test for the byte-vs-char fix.
-    #[test]
-    fn search_accepts_51_accented_chars_102_bytes() {
-        let q: String = "é".repeat(51);
-        let char_count = q.chars().count();
-        let byte_len = q.len();
-        assert_eq!(char_count, 51);
-        assert_eq!(byte_len, 102);
-        // char_count is within limit; byte_len is not — char guard must pass.
-        assert!(char_count <= MAX_SEARCH_QUERY_LEN, "should be accepted");
-        assert!(
-            byte_len > MAX_SEARCH_QUERY_LEN,
-            "byte check would wrongly reject"
-        );
-    }
-
-    /// 50 × 'é' + 'x' = 51 chars, 101 bytes. Must be *accepted*.
-    #[test]
-    fn search_accepts_50_accented_plus_1_ascii_51_chars_101_bytes() {
-        let q: String = "é".repeat(50) + "x";
-        let char_count = q.chars().count();
-        let byte_len = q.len();
-        assert_eq!(char_count, 51);
-        assert_eq!(byte_len, 101);
-        assert!(char_count <= MAX_SEARCH_QUERY_LEN, "should be accepted");
-        assert!(
-            byte_len > MAX_SEARCH_QUERY_LEN,
-            "byte check would wrongly reject"
-        );
+    /// 50 × 'é' + 'x' = 51 chars, 101 bytes. Same contract as above: the char
+    /// guard must pass, and any error must not be Error::Validation.
+    #[tokio::test]
+    async fn search_accepts_50_accented_plus_1_ascii_51_chars_101_bytes() {
+        let handler = McpToolHandler::new();
+        let query: String = "é".repeat(50) + "x"; // 51 chars, 101 UTF-8 bytes
+        assert_eq!(query.chars().count(), 51);
+        assert_eq!(query.len(), 101);
+        let input = SearchStationsByNameInput {
+            query,
+            limit: 10,
+            fuzzy: true,
+        };
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                panic!("length guard wrongly fired for 51-char query: {msg}");
+            }
+            _ => {}
+        }
     }
 
     // --- journey_confidence_score ---

@@ -465,11 +465,13 @@ async fn handle_resource(
 /// Get reference stations resource data
 async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_reference_stations().await?;
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "last_updated": chrono::Utc::now(),
             "data_source": "live"
         }
@@ -497,11 +499,13 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
             })
         })
         .collect();
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
@@ -512,11 +516,13 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 /// Get complete stations resource data (reference + real-time)
 async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_complete_stations(true).await?;
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
