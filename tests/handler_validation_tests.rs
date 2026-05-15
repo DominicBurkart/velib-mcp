@@ -124,7 +124,12 @@ async fn search_stations_rejects_short_query() {
     };
 
     let result = handler.search_stations_by_name(input).await;
-    assert!(result.is_err());
+    let err = result.unwrap_err();
+    // Short queries must surface as `validation_error`, not the catch-all
+    // `internal_error`: this matches the advertised JSON-Schema `minLength: 2`
+    // contract and routes the JSON-RPC error code to -32602 (Invalid params)
+    // rather than -32603 (Internal error).
+    assert_eq!(err.error_type(), "validation_error");
 }
 
 #[tokio::test]

@@ -298,7 +298,7 @@ Recherche textuelle dans les noms de stations.
     "limit": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 50,
+      "maximum": 100,
       "default": 10,
       "description": "Nombre maximum de résultats"
     },
@@ -453,11 +453,11 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
             "properties": {
               "pickup_station": {"$ref": "#/definitions/VelibStation"},
               "dropoff_station": {"$ref": "#/definitions/VelibStation"},
-              "walk_to_pickup": {"type": "integer"},
-              "walk_from_dropoff": {"type": "integer"},
+              "straight_line_to_pickup_meters": {"type": "integer"},
+              "straight_line_from_dropoff_meters": {"type": "integer"},
               "confidence_score": {
                 "type": "number",
-                "minimum": 0,
+                "minimum": 0.1,
                 "maximum": 1
               }
             }
@@ -471,51 +471,55 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
 
 ## Gestion des Erreurs
 
-### Codes d'Erreur Standard
+### Format JSON-RPC
+
+Toute erreur est renvoyée dans le champ `error` d'une réponse JSON-RPC
+2.0. Le champ `data.error_type` est une chaîne stable utilisable par les
+clients pour discriminer les variantes sans parser le message.
+
 ```json
 {
   "error": {
-    "code": -32001,
-    "message": "Station not found",
+    "code": -32600,
+    "message": "Station not found: 99999",
     "data": {
-      "station_code": "99999",
-      "error_type": "STATION_NOT_FOUND"
+      "error_type": "station_not_found"
     }
   }
 }
 ```
 
-### Types d'Erreurs
-- `-32001` : Station non trouvée
-- `-32002` : Coordonnées invalides  
-- `-32003` : Données temps réel indisponibles
-- `-32004` : Rayon de recherche trop large
-- `-32005` : Limite de résultats dépassée
+### Mapping codes / `error_type`
+
+La source de vérité est [`src/error.rs`](../../src/error.rs)
+(`Error::mcp_error_code` et `Error::error_type`).
+
+| Code     | `error_type`              | Variante Rust                |
+|----------|---------------------------|------------------------------|
+| `-32700` | `json_error`              | `Error::Json`                |
+| `-32600` | `station_not_found`       | `Error::StationNotFound`     |
+| `-32602` | `invalid_coordinates`     | `Error::InvalidCoordinates`  |
+| `-32602` | `outside_service_area`    | `Error::OutsideServiceArea`  |
+| `-32602` | `search_radius_too_large` | `Error::SearchRadiusTooLarge`|
+| `-32602` | `result_limit_exceeded`   | `Error::ResultLimitExceeded` |
+| `-32602` | `validation_error`        | `Error::Validation`          |
+| `-32603` | `mcp_protocol_error`      | `Error::McpProtocol`         |
+| `-32603` | `cache_error`             | `Error::Cache`               |
+| `-32603` | `internal_error`          | `Error::Internal`            |
+| `-32001` | `http_error`              | `Error::Http`                |
+| `-32001` | `rate_limited`            | `Error::RateLimited`         |
 
 ## Rate Limiting
 
-### Limites par Défaut
-- **Resources** : 60 requêtes/minute
-- **Tools** : 100 requêtes/minute
-- **Burst** : 10 requêtes/seconde
-
-### Headers de Réponse
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
-```
+Pas de rate limiting applicatif côté serveur à ce jour. Les retries vers
+l'API Paris Open Data utilisent un backoff exponentiel
+(`Error::RateLimited` + `Retry-After`); voir
+[`src/data/retry.rs`](../../src/data/retry.rs).
 
 ## Authentification
 
-### Mode Public
-- Aucune authentification requise
-- Rate limiting appliqué par IP
-
-### Mode API Key (Futur)
-```http
-Authorization: Bearer <api_key>
-```
+Aucune authentification requise; le serveur expose les données Velib
+publiques telles quelles.
 
 ## Métadonnées de Santé
 
@@ -525,6 +529,13 @@ velib://health
 ```
 
 #### Contenu
+La réponse est produite par
+[`get_health_resource`](../../src/mcp/server.rs). `cache_stats` reflète
+la taille réelle des caches; `hit_rate` est volontairement omis (le cache
+ne suit pas hits/misses, voir
+[`src/data/cache.rs`](../../src/data/cache.rs)). `lag_seconds` est calculé
+à partir du `last_update` le plus récent observé dans les données live.
+
 ```json
 {
   "status": "healthy",
@@ -533,17 +544,18 @@ velib://health
   "data_sources": {
     "real_time": {
       "status": "healthy",
-      "last_update": "2025-06-14T19:31:22Z",
+      "last_update": "2026-04-23T19:31:22Z",
       "lag_seconds": 45
     },
     "reference": {
-      "status": "healthy", 
-      "last_update": "2025-06-14T06:00:00Z"
+      "status": "healthy",
+      "last_update": "2026-04-23T19:31:22Z"
     }
   },
   "cache_stats": {
-    "hit_rate": 0.85,
-    "entries": 1400
+    "entries": 2,
+    "reference_cache_size": 1,
+    "realtime_cache_size": 1
   }
 }
 ```
