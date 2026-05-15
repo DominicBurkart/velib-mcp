@@ -18,6 +18,10 @@ const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/cat
 const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
 const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
 
+// Cache keys shared between production read path and test seeding helpers
+pub(crate) const REFERENCE_CACHE_KEY: &str = "all_reference_stations";
+pub(crate) const REALTIME_CACHE_KEY: &str = "all_realtime_status";
+
 #[derive(Debug)]
 pub struct VelibDataClient {
     client: RetryableHttpClient,
@@ -68,10 +72,12 @@ impl VelibDataClient {
 
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
-        const CACHE_KEY: &str = "all_reference_stations";
-
         // Check cache first
-        if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
+        if let Some(cached) = self
+            .reference_cache
+            .get(&REFERENCE_CACHE_KEY.to_string())
+            .await
+        {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
         }
@@ -118,7 +124,7 @@ impl VelibDataClient {
 
         // Cache the results
         self.reference_cache
-            .insert(CACHE_KEY.to_string(), all_stations.clone())
+            .insert(REFERENCE_CACHE_KEY.to_string(), all_stations.clone())
             .await;
 
         Ok(all_stations)
@@ -126,10 +132,12 @@ impl VelibDataClient {
 
     /// Fetch real-time station status data
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
-        const CACHE_KEY: &str = "all_realtime_status";
-
         // Check cache first
-        if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
+        if let Some(cached) = self
+            .realtime_cache
+            .get(&REALTIME_CACHE_KEY.to_string())
+            .await
+        {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
         }
@@ -176,7 +184,7 @@ impl VelibDataClient {
 
         // Cache the results
         self.realtime_cache
-            .insert(CACHE_KEY.to_string(), all_status.clone())
+            .insert(REALTIME_CACHE_KEY.to_string(), all_status.clone())
             .await;
 
         Ok(all_status)
@@ -243,7 +251,7 @@ impl VelibDataClient {
     #[doc(hidden)]
     pub async fn seed_for_testing(&self, stations: Vec<StationReference>) {
         self.reference_cache
-            .insert("all_reference_stations".to_string(), stations)
+            .insert(REFERENCE_CACHE_KEY.to_string(), stations)
             .await;
     }
 
@@ -253,7 +261,7 @@ impl VelibDataClient {
     #[doc(hidden)]
     pub async fn seed_realtime_for_testing(&self, status_map: HashMap<String, RealTimeStatus>) {
         self.realtime_cache
-            .insert("all_realtime_status".to_string(), status_map)
+            .insert(REALTIME_CACHE_KEY.to_string(), status_map)
             .await;
     }
 }
