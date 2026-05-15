@@ -835,12 +835,9 @@ mod tests {
         // The length guard must not fire. Any error that does occur must not be
         // a Validation error — it will be a network/IO error from the missing
         // live API connection.
-        match handler.search_stations_by_name(input).await {
-            Err(Error::Validation(msg)) => {
-                panic!("length guard wrongly fired for 51-char query: {msg}");
-            }
-            // Any other result (Ok or non-Validation Err) means the guard passed.
-            _ => {}
+        // Any other result (Ok or non-Validation Err) means the guard passed.
+        if let Err(Error::Validation(msg)) = handler.search_stations_by_name(input).await {
+            panic!("length guard wrongly fired for 51-char query: {msg}");
         }
     }
 
@@ -857,11 +854,8 @@ mod tests {
             limit: 10,
             fuzzy: true,
         };
-        match handler.search_stations_by_name(input).await {
-            Err(Error::Validation(msg)) => {
-                panic!("length guard wrongly fired for 51-char query: {msg}");
-            }
-            _ => {}
+        if let Err(Error::Validation(msg)) = handler.search_stations_by_name(input).await {
+            panic!("length guard wrongly fired for 51-char query: {msg}");
         }
     }
 
