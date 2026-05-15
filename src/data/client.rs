@@ -18,6 +18,10 @@ const VELIB_REALTIME_URL: &str = "https://opendata.paris.fr/api/explore/v2.1/cat
 const REFERENCE_CACHE_TTL_MINUTES: i64 = 5; // 5 minutes for reference data
 const REALTIME_CACHE_TTL_MINUTES: i64 = 2; // 2 minutes for real-time data
 
+// Cache keys shared between production read path and test seeding helpers
+pub(crate) const REFERENCE_CACHE_KEY: &str = "all_reference_stations";
+pub(crate) const REALTIME_CACHE_KEY: &str = "all_realtime_status";
+
 #[derive(Debug)]
 pub struct VelibDataClient {
     client: RetryableHttpClient,
@@ -68,10 +72,12 @@ impl VelibDataClient {
 
     /// Fetch all station reference data
     pub async fn fetch_reference_stations(&mut self) -> Result<Vec<StationReference>> {
-        const CACHE_KEY: &str = "all_reference_stations";
-
         // Check cache first
-        if let Some(cached) = self.reference_cache.get(&CACHE_KEY.to_string()).await {
+        if let Some(cached) = self
+            .reference_cache
+            .get(&REFERENCE_CACHE_KEY.to_string())
+            .await
+        {
             debug!("Using cached reference stations: {} stations", cached.len());
             return Ok(cached);
         }
@@ -118,7 +124,7 @@ impl VelibDataClient {
 
         // Cache the results
         self.reference_cache
-            .insert(CACHE_KEY.to_string(), all_stations.clone())
+            .insert(REFERENCE_CACHE_KEY.to_string(), all_stations.clone())
             .await;
 
         Ok(all_stations)
@@ -126,10 +132,12 @@ impl VelibDataClient {
 
     /// Fetch real-time station status data
     pub async fn fetch_realtime_status(&mut self) -> Result<HashMap<String, RealTimeStatus>> {
-        const CACHE_KEY: &str = "all_realtime_status";
-
         // Check cache first
-        if let Some(cached) = self.realtime_cache.get(&CACHE_KEY.to_string()).await {
+        if let Some(cached) = self
+            .realtime_cache
+            .get(&REALTIME_CACHE_KEY.to_string())
+            .await
+        {
             debug!("Using cached real-time status: {} stations", cached.len());
             return Ok(cached);
         }
@@ -176,7 +184,7 @@ impl VelibDataClient {
 
         // Cache the results
         self.realtime_cache
-            .insert(CACHE_KEY.to_string(), all_status.clone())
+            .insert(REALTIME_CACHE_KEY.to_string(), all_status.clone())
             .await;
 
         Ok(all_status)
@@ -232,6 +240,29 @@ impl VelibDataClient {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
         (reference_size, realtime_size)
+    }
+
+    /// Seed the reference-station cache with pre-built data, bypassing the network.
+    ///
+    /// This method exists for integration-test helpers. It is always compiled so
+    /// that `tests/*.rs` files can call it without requiring `--all-features` or
+    /// `cfg(test)` to be set on the library crate. The `_for_testing` suffix
+    /// signals that it must not be called in production code.
+    #[doc(hidden)]
+    pub async fn seed_for_testing(&self, stations: Vec<StationReference>) {
+        self.reference_cache
+            .insert(REFERENCE_CACHE_KEY.to_string(), stations)
+            .await;
+    }
+
+    /// Seed the real-time cache with pre-built data, bypassing the network.
+    ///
+    /// See [`seed_for_testing`](Self::seed_for_testing) for the rationale.
+    #[doc(hidden)]
+    pub async fn seed_realtime_for_testing(&self, status_map: HashMap<String, RealTimeStatus>) {
+        self.realtime_cache
+            .insert(REALTIME_CACHE_KEY.to_string(), status_map)
+            .await;
     }
 }
 
@@ -422,5 +453,26 @@ mod tests {
     fn parse_realtime_status_rejects_missing_station_code() {
         let record = json!({"is_installed": "OUI"});
         assert!(parse_realtime_status(&record).is_err());
+    }
+
+    /// A numeric `stationcode` must be rejected.
+    ///
+    /// `parse_realtime_status` extracts the station code via `.as_str()`, which
+    /// returns `None` for non-string JSON values. This test asserts that a
+    /// numeric station code (e.g. `16107` instead of `"16107"`) is treated as a
+    /// parse failure rather than being silently coerced to a string — a coercion
+    /// regression would silently discard or mis-key real-time records.
+    #[test]
+    fn parse_realtime_status_rejects_numeric_station_code() {
+        let record = json!({
+            "stationcode": 16107,
+            "is_installed": "OUI",
+            "is_renting": "OUI",
+            "is_returning": "OUI",
+        });
+        assert!(
+            parse_realtime_status(&record).is_err(),
+            "a numeric stationcode should be rejected; as_str() returns None for non-string JSON values"
+        );
     }
 }

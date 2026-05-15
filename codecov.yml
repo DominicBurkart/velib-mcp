@@ -13,3 +13,8 @@ coverage:
       default:
         target: auto
         threshold: 0%
+
+# Do not block the GitHub Actions job result on Codecov's own PR status
+# check. Token availability in the 'codecov' environment requires manual
+# approval; a missing token should not make CI red on a code-only PR.
+require_ci_to_pass: no

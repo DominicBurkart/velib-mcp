@@ -8,6 +8,9 @@ description = "MCP server for Velib Paris bike sharing data"
 keywords = ["mcp", "velib", "paris", "bike-sharing", "transport"]
 categories = ["api-bindings", "web-programming"]
 
+[features]
+test-utils = []
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.7", features = ["ws"] }

@@ -1,4 +1,5 @@
 [default]
 ignore = ["tests/"]
-out = ["xml"]
+out = ["Xml"]
 output-dir = "coverage"
+all-features = true
