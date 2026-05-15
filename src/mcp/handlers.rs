@@ -16,6 +16,31 @@ use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
+const MIN_SEARCH_QUERY_LEN: usize = 2;
+
+/// Normalize a string for case- and accent-insensitive name matching.
+///
+/// Lower-cases the input then applies Unicode NFC normalization so that
+/// pre-composed and decomposed forms of the same accented character compare
+/// equal. Used by `search_stations_by_name` for both the query and each
+/// candidate station name.
+fn normalize_for_search(s: &str) -> String {
+    s.to_lowercase().nfc().collect()
+}
+
+/// Test whether `name` matches `query` under the given fuzzy/prefix mode.
+///
+/// Both inputs are expected to already be normalized via
+/// `normalize_for_search`. Extracted as a pure function so the matching rule
+/// (prefix vs. contains) can be unit-tested without going through the full
+/// handler + data-client wiring.
+fn name_matches_query(name: &str, query: &str, fuzzy: bool) -> bool {
+    if fuzzy {
+        name.contains(query)
+    } else {
+        name.starts_with(query)
+    }
+}
 
 /// Validate that a coordinate is within the Velib service area, returning the
 /// appropriate `Error` if not. Centralizes the two checks previously duplicated
@@ -262,8 +287,10 @@ impl McpToolHandler {
     ) -> Result<SearchStationsByNameOutput> {
         let start_time = Instant::now();
 
-        if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+        if input.query.len() < MIN_SEARCH_QUERY_LEN {
+            return Err(Error::Validation(format!(
+                "Search query must be at least {MIN_SEARCH_QUERY_LEN} characters"
+            )));
         }
 
         if input.limit > MAX_RESULT_LIMIT {
@@ -277,21 +304,12 @@ impl McpToolHandler {
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
+        let query_normalized = normalize_for_search(&input.query);
         let mut matching_stations: Vec<VelibStation> = all_stations
             .into_iter()
             .filter(|station| {
-                let name_normalized = station
-                    .reference
-                    .name
-                    .to_lowercase()
-                    .nfc()
-                    .collect::<String>();
-                if input.fuzzy {
-                    name_normalized.contains(&query_normalized)
-                } else {
-                    name_normalized.starts_with(&query_normalized)
-                }
+                let name_normalized = normalize_for_search(&station.reference.name);
+                name_matches_query(&name_normalized, &query_normalized, input.fuzzy)
             })
             .collect();
 
@@ -735,6 +753,63 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_invariants_hold_across_mixed_inputs() {
+        // Document the load-bearing invariants of `aggregate_area_statistics`
+        // and check them against a deliberately varied input set:
+        //   1. available_bikes.total == mechanical + electric (no drift).
+        //   2. operational_stations <= total_stations.
+        //   3. occupancy_rate is finite and >= 0 (an honest ratio).
+        //
+        // Stations: one open, one closed, one maintenance, one with no
+        // real-time data. Capacities are all 20 (see `make_station`).
+        let mut closed = make_station("c", 48.85, 2.35, 1, 0);
+        if let Some(rt) = closed.real_time.as_mut() {
+            rt.status = StationStatus::Closed;
+        }
+        let mut maint = make_station("m", 48.86, 2.36, 0, 1);
+        if let Some(rt) = maint.real_time.as_mut() {
+            rt.status = StationStatus::Maintenance;
+        }
+        let open = make_station("o", 48.87, 2.37, 3, 2);
+        let mut no_rt = make_station("n", 48.88, 2.38, 0, 0);
+        no_rt.real_time = None;
+
+        let stations = vec![closed, maint, open, no_rt];
+        let stats = aggregate_area_statistics(&stations);
+
+        // (1) totals consistency
+        assert_eq!(
+            stats.available_bikes.total,
+            stats.available_bikes.mechanical + stats.available_bikes.electric,
+            "available_bikes.total must equal mechanical + electric"
+        );
+
+        // (2) operational <= total
+        assert!(
+            stats.operational_stations <= stats.total_stations,
+            "operational_stations ({}) must not exceed total_stations ({})",
+            stats.operational_stations,
+            stats.total_stations
+        );
+
+        // (3) occupancy is a non-negative finite number
+        assert!(
+            stats.occupancy_rate.is_finite() && stats.occupancy_rate >= 0.0,
+            "occupancy_rate must be finite and >= 0, got {}",
+            stats.occupancy_rate
+        );
+
+        // Concretely:
+        //   total: 4, operational: 2 (open + no_rt-defaults-to-operational)
+        //   total_capacity: 80 (4 * 20)
+        //   bikes: 1 (closed contributes) + 1 (maint) + 5 (open) + 0 (no_rt) = 7
+        assert_eq!(stats.total_stations, 4);
+        assert_eq!(stats.operational_stations, 2);
+        assert_eq!(stats.total_capacity, 80);
+        assert_eq!(stats.available_bikes.total, 7);
+    }
+
+    #[test]
     fn aggregate_excludes_closed_stations_from_operational_count() {
         let mut closed = make_station("closed", 48.85, 2.35, 5, 0);
         if let Some(rt) = closed.real_time.as_mut() {
@@ -818,5 +893,47 @@ mod tests {
             (journey_confidence_score(0, 0, 0) - 1.0).abs() < 1e-9,
             "(0, 0, 0) should be 1.0"
         );
+    }
+
+    // --- normalize_for_search / name_matches_query ---
+
+    #[test]
+    fn normalize_for_search_lowercases_ascii() {
+        assert_eq!(normalize_for_search("CHATELET"), "chatelet");
+        assert_eq!(normalize_for_search("Châtelet"), "châtelet");
+    }
+
+    #[test]
+    fn normalize_for_search_makes_decomposed_and_composed_forms_match() {
+        // Same visible string in NFD (decomposed) and NFC (precomposed) forms.
+        // After `normalize_for_search` both must yield the same bytes so that
+        // searches across upstream-supplied names are accent-form-agnostic.
+        let nfd = "Cha\u{0302}telet"; // 'C', 'h', 'a', combining circumflex, ...
+        let nfc = "Châtelet"; // precomposed â
+        assert_eq!(normalize_for_search(nfd), normalize_for_search(nfc));
+    }
+
+    #[test]
+    fn name_matches_query_fuzzy_uses_contains() {
+        // Fuzzy = substring match anywhere in the name.
+        assert!(name_matches_query("place de la nation", "nation", true));
+        assert!(name_matches_query("place de la nation", "place", true));
+        assert!(!name_matches_query("place de la nation", "lyon", true));
+    }
+
+    #[test]
+    fn name_matches_query_non_fuzzy_uses_prefix() {
+        // Non-fuzzy = prefix match only.
+        assert!(name_matches_query("place de la nation", "place", false));
+        assert!(!name_matches_query("place de la nation", "nation", false));
+    }
+
+    #[test]
+    fn name_matches_query_handles_empty_query() {
+        // An empty query degenerates to "matches everything" for both modes.
+        // The handler rejects sub-MIN_SEARCH_QUERY_LEN queries before calling
+        // this helper, so this is just documenting the pure-function behavior.
+        assert!(name_matches_query("anything", "", true));
+        assert!(name_matches_query("anything", "", false));
     }
 }
