@@ -305,14 +305,36 @@ impl McpServer {
                 ]
             })),
             "tools/call" => {
-                let params = request
-                    .params
-                    .as_object()
-                    .ok_or_else(|| Error::McpProtocol("Invalid params".to_string()))?;
-                let tool_name = params
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| Error::McpProtocol("Missing tool name".to_string()))?;
+                let params = match request.params.as_object() {
+                    Some(p) => p,
+                    None => {
+                        return Ok(JsonRpcResponse {
+                            jsonrpc: "2.0".to_string(),
+                            id: request.id,
+                            result: None,
+                            error: Some(JsonRpcError {
+                                code: -32600,
+                                message: "Invalid params".to_string(),
+                                data: None,
+                            }),
+                        });
+                    }
+                };
+                let tool_name = match params.get("name").and_then(|v| v.as_str()) {
+                    Some(name) => name,
+                    None => {
+                        return Ok(JsonRpcResponse {
+                            jsonrpc: "2.0".to_string(),
+                            id: request.id,
+                            result: None,
+                            error: Some(JsonRpcError {
+                                code: -32603,
+                                message: "Missing tool name".to_string(),
+                                data: None,
+                            }),
+                        });
+                    }
+                };
                 let empty_args = json!({});
                 let arguments = params.get("arguments").unwrap_or(&empty_args);
 
