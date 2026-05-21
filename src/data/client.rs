@@ -1,5 +1,5 @@
 use crate::data::cache::InMemoryCache;
-use crate::data::retry::{RetryConfig, RetryPolicy, RetryableHttpClient};
+use crate::data::retry::RetryableHttpClient;
 use crate::types::{
     BikeAvailability, RealTimeStatus, ServiceCapabilities, StationReference, StationStatus,
     VelibStation,
@@ -36,31 +36,6 @@ impl VelibDataClient {
     pub fn new() -> Self {
         Self {
             client: RetryableHttpClient::new(),
-            reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
-            realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
-        }
-    }
-
-    /// Create a new client with custom retry configuration
-    ///
-    /// # Example
-    /// ```
-    /// use velib_mcp::data::{VelibDataClient, RetryConfig};
-    ///
-    /// let retry_config = RetryConfig {
-    ///     max_attempts: 5,
-    ///     base_delay_seconds: 2,
-    ///     max_delay_seconds: 120,
-    ///     use_jitter: true,
-    /// };
-    ///
-    /// let client = VelibDataClient::with_retry_config(retry_config);
-    /// ```
-    #[must_use]
-    pub fn with_retry_config(retry_config: RetryConfig) -> Self {
-        let retry_policy = RetryPolicy::with_config(retry_config);
-        Self {
-            client: RetryableHttpClient::with_retry_policy(retry_policy),
             reference_cache: InMemoryCache::new(Duration::minutes(REFERENCE_CACHE_TTL_MINUTES)),
             realtime_cache: InMemoryCache::new(Duration::minutes(REALTIME_CACHE_TTL_MINUTES)),
         }
