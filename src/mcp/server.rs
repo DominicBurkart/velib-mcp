@@ -431,34 +431,38 @@ async fn handle_resource(
     handler: Arc<McpToolHandler>,
     start_time: Instant,
 ) -> Response {
-    match uri.as_str() {
-        "velib://stations/reference" => {
-            match get_reference_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => resource_error(e, "Failed to fetch reference stations"),
-            }
+    // Dispatch to the per-resource fetcher and keep its user-facing error
+    // message together; this lets the Ok/Err handling collapse to a single
+    // tail match shared across all resources.
+    let (result, user_message) = match uri.as_str() {
+        "velib://stations/reference" => (
+            get_reference_stations_resource(handler).await,
+            "Failed to fetch reference stations",
+        ),
+        "velib://stations/realtime" => (
+            get_realtime_stations_resource(handler).await,
+            "Failed to fetch real-time stations",
+        ),
+        "velib://stations/complete" => (
+            get_complete_stations_resource(handler).await,
+            "Failed to fetch complete stations",
+        ),
+        "velib://health" => (
+            get_health_resource(handler, start_time).await,
+            "Failed to fetch health status",
+        ),
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Resource not found"})),
+            )
+                .into_response();
         }
-        "velib://stations/realtime" => {
-            match get_realtime_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => resource_error(e, "Failed to fetch real-time stations"),
-            }
-        }
-        "velib://stations/complete" => {
-            match get_complete_stations_resource(Arc::clone(&handler)).await {
-                Ok(response) => Json(response).into_response(),
-                Err(e) => resource_error(e, "Failed to fetch complete stations"),
-            }
-        }
-        "velib://health" => match get_health_resource(Arc::clone(&handler), start_time).await {
-            Ok(response) => Json(response).into_response(),
-            Err(e) => resource_error(e, "Failed to fetch health status"),
-        },
-        _ => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Resource not found"})),
-        )
-            .into_response(),
+    };
+
+    match result {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => resource_error(e, user_message),
     }
 }
 
