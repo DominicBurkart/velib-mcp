@@ -46,12 +46,17 @@ application/json
         "longitude": 2.358866
       },
       "capacity": 22,
-      "commune": "Issy-les-Moulineaux"
+      "capabilities": {
+        "accepts_credit_card": false,
+        "has_charging_station": false,
+        "is_virtual_station": false
+      }
     }
   ],
   "metadata": {
     "total_stations": 1400,
-    "last_updated": "2025-06-14T06:00:00Z"
+    "last_updated": "2026-04-23T06:00:00Z",
+    "data_source": "live"
   }
 }
 ```
@@ -82,18 +87,15 @@ application/json
         "electric": 4
       },
       "available_docks": 10,
-      "service": {
-        "renting_enabled": true,
-        "returning_enabled": true,
-        "installed": true
-      },
-      "status": "Operational",
-      "last_updated": "2025-06-14T19:31:22Z"
+      "status": "OPEN",
+      "last_update": "2026-04-23T19:31:22Z",
+      "data_freshness": "Fresh"
     }
   ],
   "metadata": {
-    "data_freshness": "Fresh",
-    "response_time": "2025-06-14T19:31:25Z"
+    "total_stations": 1,
+    "response_time": "2026-04-23T19:31:25Z",
+    "data_source": "live"
   }
 }
 ```
@@ -298,7 +300,7 @@ Recherche textuelle dans les noms de stations.
     "limit": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 50,
+      "maximum": 100,
       "default": 10,
       "description": "Nombre maximum de résultats"
     },
@@ -453,8 +455,8 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
             "properties": {
               "pickup_station": {"$ref": "#/definitions/VelibStation"},
               "dropoff_station": {"$ref": "#/definitions/VelibStation"},
-              "walk_to_pickup": {"type": "integer"},
-              "walk_from_dropoff": {"type": "integer"},
+              "straight_line_to_pickup_meters": {"type": "integer"},
+              "straight_line_from_dropoff_meters": {"type": "integer"},
               "confidence_score": {
                 "type": "number",
                 "minimum": 0,
@@ -471,46 +473,44 @@ Planifie un trajet en suggérant stations de départ et d'arrivée.
 
 ## Gestion des Erreurs
 
-### Codes d'Erreur Standard
+Source de vérité : [`src/error.rs`](../../src/error.rs).
+
+### Exemple de Réponse
 ```json
 {
   "error": {
-    "code": -32001,
-    "message": "Station not found",
+    "code": -32600,
+    "message": "Station not found: 99999",
     "data": {
-      "station_code": "99999",
-      "error_type": "STATION_NOT_FOUND"
+      "error_type": "station_not_found"
     }
   }
 }
 ```
 
-### Types d'Erreurs
-- `-32001` : Station non trouvée
-- `-32002` : Coordonnées invalides  
-- `-32003` : Données temps réel indisponibles
-- `-32004` : Rayon de recherche trop large
-- `-32005` : Limite de résultats dépassée
+### Mapping des Codes
+- `-32700` : Erreur de parsing JSON (`json_error`)
+- `-32600` : Requête invalide -- station introuvable (`station_not_found`)
+- `-32602` : Paramètres invalides -- coordonnées hors zone, rayon ou limite
+  excessifs, validation générique (`invalid_coordinates`,
+  `outside_service_area`, `search_radius_too_large`,
+  `result_limit_exceeded`, `validation_error`)
+- `-32603` : Erreur interne -- protocole MCP, cache, anyhow
+  (`mcp_protocol_error`, `cache_error`, `internal_error`)
+- `-32001` : Erreur HTTP en amont ou rate limiting Paris Open Data
+  (`http_error`, `rate_limited`)
 
 ## Rate Limiting
 
-### Limites par Défaut
-- **Resources** : 60 requêtes/minute
-- **Tools** : 100 requêtes/minute
-- **Burst** : 10 requêtes/seconde
-
-### Headers de Réponse
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1640995200
-```
+Le serveur n'applique pas de rate limit propre. Les seules limites observées
+proviennent de l'API Paris Open Data en amont, exposées via l'erreur
+`Error::RateLimited` ([`src/error.rs`](../../src/error.rs)) avec code
+JSON-RPC `-32001` et, si présent, le header `Retry-After` propagé.
 
 ## Authentification
 
 ### Mode Public
-- Aucune authentification requise
-- Rate limiting appliqué par IP
+- Aucune authentification requise.
 
 ### Mode API Key (Futur)
 ```http
@@ -542,8 +542,13 @@ velib://health
     }
   },
   "cache_stats": {
-    "hit_rate": 0.85,
-    "entries": 1400
+    "entries": 2,
+    "reference_cache_size": 1,
+    "realtime_cache_size": 1
   }
 }
 ```
+
+`hit_rate` n'est volontairement pas exposé : le cache ne mesure pas
+hits/misses, et fabriquer une valeur serait trompeur (voir
+[`src/mcp/server.rs`](../../src/mcp/server.rs)).
