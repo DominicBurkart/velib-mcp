@@ -18,13 +18,15 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use velib_mcp::mcp::server::McpServer;
 
-async fn post_mcp(body: Value) -> (StatusCode, Value) {
+/// Core helper: sends `body` (an arbitrary string) as a POST to `/mcp` and
+/// returns the HTTP status together with the parsed JSON response body.
+async fn post_mcp_str(body: &str) -> (StatusCode, Value) {
     let router = McpServer::new().router();
     let request = Request::builder()
         .uri("/mcp")
         .method("POST")
         .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
+        .body(Body::from(body.to_owned()))
         .unwrap();
     let response = router.oneshot(request).await.unwrap();
     let status = response.status();
@@ -35,21 +37,9 @@ async fn post_mcp(body: Value) -> (StatusCode, Value) {
     (status, value)
 }
 
-async fn post_mcp_raw(raw: &str) -> (StatusCode, Value) {
-    let router = McpServer::new().router();
-    let request = Request::builder()
-        .uri("/mcp")
-        .method("POST")
-        .header("content-type", "application/json")
-        .body(Body::from(raw.to_owned()))
-        .unwrap();
-    let response = router.oneshot(request).await.unwrap();
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    (status, value)
+/// Convenience wrapper: serialises a `Value` and delegates to `post_mcp_str`.
+async fn post_mcp(body: Value) -> (StatusCode, Value) {
+    post_mcp_str(&body.to_string()).await
 }
 
 async fn get_resource(uri: &str) -> (StatusCode, Value) {
@@ -351,7 +341,7 @@ async fn tools_call_with_malformed_arguments_returns_jsonrpc_error() {
 
 #[tokio::test]
 async fn malformed_json_body_returns_parse_error() {
-    let (status, body) = post_mcp_raw("{ not valid json").await;
+    let (status, body) = post_mcp_str("{ not valid json").await;
 
     // The JsonRejection branch still returns 200 with a JSON-RPC error body.
     assert_eq!(status, StatusCode::OK);
