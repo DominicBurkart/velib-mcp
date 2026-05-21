@@ -18,6 +18,36 @@ use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::{Error, Result};
 
+// ---------------------------------------------------------------------------
+// Single source of truth for all MCP resource descriptors.
+//
+// Each entry is `(uri, name, description)`.  Both `resources/list` and
+// `handle_resource` are derived from this array, so adding or removing a
+// resource only requires touching this one place.
+// ---------------------------------------------------------------------------
+const RESOURCES: &[(&str, &str, &str)] = &[
+    (
+        "velib://stations/reference",
+        "Velib Station Reference Data",
+        "Complete catalog of Velib stations with static metadata",
+    ),
+    (
+        "velib://stations/realtime",
+        "Velib Real-time Availability",
+        "Current bike and dock availability for all stations",
+    ),
+    (
+        "velib://stations/complete",
+        "Velib Complete Station Data",
+        "Combined reference and real-time data for all stations",
+    ),
+    (
+        "velib://health",
+        "Service Health Status",
+        "System health and data source status information",
+    ),
+];
+
 pub struct McpServer {
     tool_handler: Arc<McpToolHandler>,
     /// Live WebSocket client ids. Tracking them as a set (rather than a
@@ -339,34 +369,21 @@ impl McpServer {
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
             }
-            "resources/list" => Ok(json!({
-                "resources": [
-                    {
-                        "uri": "velib://stations/reference",
-                        "name": "Velib Station Reference Data",
-                        "description": "Complete catalog of Velib stations with static metadata",
-                        "mimeType": "application/json"
-                    },
-                    {
-                        "uri": "velib://stations/realtime",
-                        "name": "Velib Real-time Availability",
-                        "description": "Current bike and dock availability for all stations",
-                        "mimeType": "application/json"
-                    },
-                    {
-                        "uri": "velib://stations/complete",
-                        "name": "Velib Complete Station Data",
-                        "description": "Combined reference and real-time data for all stations",
-                        "mimeType": "application/json"
-                    },
-                    {
-                        "uri": "velib://health",
-                        "name": "Service Health Status",
-                        "description": "System health and data source status information",
-                        "mimeType": "application/json"
-                    }
-                ]
-            })),
+            // Build the resources list by iterating the single RESOURCES registry.
+            "resources/list" => {
+                let resources: Vec<Value> = RESOURCES
+                    .iter()
+                    .map(|(uri, name, description)| {
+                        json!({
+                            "uri": uri,
+                            "name": name,
+                            "description": description,
+                            "mimeType": "application/json"
+                        })
+                    })
+                    .collect();
+                Ok(json!({ "resources": resources }))
+            }
             _ => Err(Error::McpProtocol(format!(
                 "Unknown method: {}",
                 request.method
@@ -426,11 +443,27 @@ fn resource_error(err: Error, user_message: &str) -> Response {
         .into_response()
 }
 
+/// Dispatch an incoming resource URI to the appropriate handler function.
+///
+/// The set of recognised URIs is derived from the `RESOURCES` registry, so
+/// this function and `resources/list` stay in sync automatically.
 async fn handle_resource(
     axum::extract::Path(uri): axum::extract::Path<String>,
     handler: Arc<McpToolHandler>,
     start_time: Instant,
 ) -> Response {
+    // Verify the URI is known before dispatching.  This lets us return a
+    // proper 404 for any URI that is not in the registry without duplicating
+    // the URI strings again.
+    let known = RESOURCES.iter().any(|(u, _, _)| *u == uri.as_str());
+    if !known {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Resource not found"})),
+        )
+            .into_response();
+    }
+
     match uri.as_str() {
         "velib://stations/reference" => {
             match get_reference_stations_resource(Arc::clone(&handler)).await {
@@ -454,11 +487,8 @@ async fn handle_resource(
             Ok(response) => Json(response).into_response(),
             Err(e) => resource_error(e, "Failed to fetch health status"),
         },
-        _ => (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "Resource not found"})),
-        )
-            .into_response(),
+        // All URIs not in RESOURCES have already been rejected above.
+        _ => unreachable!("URI passed RESOURCES lookup but has no dispatch arm"),
     }
 }
 
