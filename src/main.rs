@@ -1,7 +1,7 @@
-use velib_mcp::{parse_server_address, Server};
+use velib_mcp::{parse_server_address, Error, Server};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Error> {
     // Initialize tracing with a sensible default if RUST_LOG is not set
     tracing_subscriber::fmt()
         .with_env_filter(
