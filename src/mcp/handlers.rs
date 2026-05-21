@@ -208,7 +208,7 @@ impl McpToolHandler {
         ensure_in_service_area(&query_point)?;
 
         // Fetch live station data
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Filter stations by distance and bike type
@@ -246,7 +246,7 @@ impl McpToolHandler {
         &self,
         input: GetStationByCodeInput,
     ) -> Result<GetStationByCodeOutput> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let station = data_client
             .get_station_by_code(&input.station_code, true)
             .await?;
@@ -286,7 +286,7 @@ impl McpToolHandler {
         }
 
         // Fetch live station data and search by name
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         let query_normalized = input.query.to_lowercase().nfc().collect::<String>();
@@ -331,7 +331,7 @@ impl McpToolHandler {
         &self,
         input: GetAreaStatisticsInput,
     ) -> Result<GetAreaStatisticsOutput> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         let area_stations = all_stations
@@ -352,7 +352,7 @@ impl McpToolHandler {
         ensure_in_service_area(&input.destination)?;
 
         // Find nearby stations for pickup and dropoff using live data
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
         // Get preferences or use defaults
@@ -426,7 +426,7 @@ impl McpToolHandler {
 
     /// Get reference stations for resource endpoints
     pub async fn get_reference_stations(&self) -> Result<Vec<crate::types::StationReference>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.fetch_reference_stations().await
     }
 
@@ -434,7 +434,7 @@ impl McpToolHandler {
     pub async fn get_realtime_status(
         &self,
     ) -> Result<std::collections::HashMap<String, crate::types::RealTimeStatus>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.fetch_realtime_status().await
     }
 
@@ -443,7 +443,7 @@ impl McpToolHandler {
         &self,
         include_realtime: bool,
     ) -> Result<Vec<crate::types::VelibStation>> {
-        let mut data_client = self.data_client.write().await;
+        let data_client = self.data_client.read().await;
         data_client.get_all_stations(include_realtime).await
     }
 }
