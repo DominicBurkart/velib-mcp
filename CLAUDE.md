@@ -38,7 +38,7 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 
 ## État Actuel du Projet
 
-### Phases Terminées ✅
+### Phases Terminées
 - **Phase 0** : Configuration projet, CI/CD, structure documentation
 - **Phase 1** : Analyse complète des données Velib (15+ champs documentés)
 - **Phase 2A** : Configuration environnement et fondation serveur de base
@@ -70,7 +70,28 @@ cargo test                     # Tests complets
 cargo fmt                      # Formatage code
 cargo clippy                   # Analyse statique
 cargo audit                    # Audit sécurité
+scripts/coverage-ratchet.sh    # Untested-lines ratchet (~75s)
+scripts/coverage-ratchet.sh --self-test   # Fixture-only sanity check (<1s)
 ```
+
+### Ratchet de couverture (agents)
+
+Les PR sont gardées par `scripts/coverage-ratchet.sh` (workflow
+`.github/workflows/coverage-ratchet.yml`). Le ratchet **échoue uniquement si
+le nombre de lignes non-couvertes augmente** par rapport au merge-base avec
+`main` (pas un pourcentage — supprimer du code testé ne pénalise pas).
+
+Lecture d'un échec :
+
+1. Récupérer le summary du job (ou `coverage/summary.md` en local).
+2. Les fichiers sont triés par lignes non-couvertes avec les ranges exacts.
+3. Chaque fichier propose un paradigme de test (unit / integration /
+   property) via l'heuristique documentée dans
+   `docs/development/coverage-ratchet.md`.
+4. Écrire des tests sur le fichier en tête de liste d'abord — plus grand
+   impact par effort.
+
+Debug / faux-positif : voir `docs/development/coverage-ratchet.md`.
 
 ### Déploiement
 - **Cible** : Scaleway Container Serverless
