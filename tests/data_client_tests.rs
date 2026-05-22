@@ -10,11 +10,12 @@ async fn test_data_client_creation() {
     let _guard = TEST_MUTEX.lock().await;
 
     let client = VelibDataClient::new();
-    let (ref_size, rt_size) = client.cache_stats().await;
+    let (ref_size, rt_size, hit_rate) = client.cache_stats().await;
 
     // New client should have empty caches
     assert_eq!(ref_size, 0);
     assert_eq!(rt_size, 0);
+    assert_eq!(hit_rate, 0.0);
 }
 
 #[tokio::test]
@@ -26,9 +27,10 @@ async fn test_cache_cleanup() {
     // Cache cleanup should work without errors
     client.cleanup_cache().await;
 
-    let (ref_size, rt_size) = client.cache_stats().await;
+    let (ref_size, rt_size, hit_rate) = client.cache_stats().await;
     assert_eq!(ref_size, 0);
     assert_eq!(rt_size, 0);
+    assert_eq!(hit_rate, 0.0);
 }
 
 #[tokio::test]
