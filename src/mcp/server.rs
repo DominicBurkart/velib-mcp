@@ -558,7 +558,7 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
 
     Ok(json!({
         "status": "healthy",
-        "version": "1.0.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "uptime_seconds": uptime_seconds,
         "data_sources": {
             "real_time": {
