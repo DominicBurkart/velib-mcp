@@ -254,7 +254,7 @@ impl McpServer {
                         "inputSchema": {
                             "type": "object",
                             "properties": {
-                                "query": {"type": "string", "minLength": 2},
+                                "query": {"type": "string", "minLength": 2, "maxLength": 100},
                                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                                 "fuzzy": {"type": "boolean", "default": true}
                             },
@@ -472,11 +472,13 @@ async fn handle_resource(
 /// Get reference stations resource data
 async fn get_reference_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_reference_stations().await?;
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "last_updated": chrono::Utc::now(),
             "data_source": "live"
         }
@@ -504,11 +506,13 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
             })
         })
         .collect();
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
@@ -519,11 +523,13 @@ async fn get_realtime_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 /// Get complete stations resource data (reference + real-time)
 async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<Value> {
     let stations = handler.get_complete_stations(true).await?;
+    // Capture the count before `json!` moves `stations` into the Value.
+    let station_count = stations.len();
 
     Ok(json!({
         "stations": stations,
         "metadata": {
-            "total_stations": stations.len(),
+            "total_stations": station_count,
             "data_freshness": "Fresh",
             "response_time": chrono::Utc::now(),
             "data_source": "live"
@@ -533,14 +539,13 @@ async fn get_complete_stations_resource(handler: Arc<McpToolHandler>) -> Result<
 
 /// Get health resource data with real metrics.
 ///
-/// Reports real uptime, real cache sizes, and real data lag computed from the
-/// most recent `last_update` across all stations. A synthetic `hit_rate` is
-/// intentionally omitted: the cache does not track hits/misses, so fabricating
-/// a number would be misleading.
+/// Reports real uptime, real cache sizes, real hit rate, and real data lag
+/// computed from the most recent `last_update` across all stations.
 async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) -> Result<Value> {
     let uptime_seconds = start_time.elapsed().as_secs();
 
-    let (reference_cache_size, realtime_cache_size) = handler.cache_stats().await;
+    // Get real cache statistics including the measured hit rate.
+    let (reference_cache_size, realtime_cache_size, hit_rate) = handler.cache_stats().await;
     let total_entries = reference_cache_size + realtime_cache_size;
 
     let (realtime_status, reference_status, lag_seconds, most_recent_update) =
@@ -574,6 +579,7 @@ async fn get_health_resource(handler: Arc<McpToolHandler>, start_time: Instant) 
             }
         },
         "cache_stats": {
+            "hit_rate": hit_rate,
             "entries": total_entries,
             "reference_cache_size": reference_cache_size,
             "realtime_cache_size": realtime_cache_size
