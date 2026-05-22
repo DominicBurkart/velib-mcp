@@ -166,6 +166,6 @@ struct VelibStation {
 ```
 
 ### Stratégie de Mise à Jour
-1. **Référence** : Synchronisation quotidienne des emplacements
-2. **Temps réel** : Polling toutes les 2-3 minutes (respect du rate limiting)
-3. **Cache** : TTL de 2 minutes pour les données temps réel
+TTL implémentés dans [`src/data/client.rs:18`](../../src/data/client.rs) :
+- Cache référence : 5 minutes
+- Cache temps réel : 2 minutes

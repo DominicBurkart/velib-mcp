@@ -2,7 +2,7 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::data::VelibDataClient;
 use crate::mcp::types::{
-    AreaStatistics, AvailableBikesStats, BikeJourney, FindNearbyStationsInput,
+    AreaStatistics, AvailabilityFilter, AvailableBikesStats, BikeJourney, FindNearbyStationsInput,
     FindNearbyStationsOutput, GetAreaStatisticsInput, GetAreaStatisticsOutput,
     GetStationByCodeInput, GetStationByCodeOutput, JourneyPreferences, JourneyRecommendation,
     PlanBikeJourneyInput, PlanBikeJourneyOutput, SearchMetadata, SearchStationsByNameInput,
@@ -122,6 +122,50 @@ fn journey_confidence_score(
     score.clamp(0.1, 1.0)
 }
 
+/// True iff the station's real-time data shows at least `min` bikes (any
+/// type) available. Mirrors `VelibStation::has_available_docks`: stations
+/// without real-time data fail the check rather than silently passing --
+/// the caller asked for a verified count and we cannot confirm it.
+fn station_has_min_bikes(station: &VelibStation, min: u16) -> bool {
+    station
+        .real_time
+        .as_ref()
+        .is_some_and(|rt| rt.bikes.total() >= min)
+}
+
+/// Apply the documented `find_nearby_stations` availability filter to one
+/// station. Always rejects non-operational stations; remaining sub-filters
+/// (`bike_type`, `min_bikes`, `min_docks`) are ANDed and absent ones are
+/// no-ops. Extracted as a free function so the policy is unit-testable
+/// without a live data client. See `docs/api/mcp_interface_spec.md`.
+fn matches_availability_filter(
+    station: &VelibStation,
+    filter: Option<&AvailabilityFilter>,
+) -> bool {
+    if !station.is_operational() {
+        return false;
+    }
+    let Some(filter) = filter else {
+        return true;
+    };
+    if let Some(bike_type) = &filter.bike_type {
+        if !station.has_available_bikes(bike_type) {
+            return false;
+        }
+    }
+    if let Some(min_bikes) = filter.min_bikes {
+        if !station_has_min_bikes(station, min_bikes) {
+            return false;
+        }
+    }
+    if let Some(min_docks) = filter.min_docks {
+        if !station.has_available_docks(min_docks) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Find stations near a point, filtering by distance and a custom predicate,
 /// sorted by distance and truncated to `limit` results.
 ///
@@ -211,22 +255,15 @@ impl McpToolHandler {
         let mut data_client = self.data_client.write().await;
         let all_stations = data_client.get_all_stations(true).await?;
 
-        // Filter stations by distance and bike type
+        // Filter stations by distance and the documented availability filter
+        // (bike_type, min_bikes, min_docks).
+        let availability_filter = input.availability_filter.as_ref();
         let stations = find_stations_within_radius(
             &all_stations,
             &query_point,
             input.radius_meters,
             input.limit as usize,
-            |station| {
-                let has_requested_bikes = match &input.availability_filter {
-                    Some(filter) => match &filter.bike_type {
-                        Some(bike_type) => station.has_available_bikes(bike_type),
-                        None => true,
-                    },
-                    None => true,
-                };
-                has_requested_bikes && station.is_operational()
-            },
+            |station| matches_availability_filter(station, availability_filter),
         );
 
         let search_time = start_time.elapsed().as_millis() as u64;
@@ -924,5 +961,111 @@ mod tests {
             (journey_confidence_score(0, 0, 0) - 1.0).abs() < 1e-9,
             "(0, 0, 0) should be 1.0"
         );
+    }
+
+    // --- station_has_min_bikes ---
+
+    #[test]
+    fn station_has_min_bikes_uses_total_across_bike_types() {
+        // 2 mechanical + 3 electric = 5 total, so >= 5 passes, > 5 fails.
+        let s = make_station("a", 48.85, 2.35, 2, 3);
+        assert!(station_has_min_bikes(&s, 0));
+        assert!(station_has_min_bikes(&s, 5));
+        assert!(!station_has_min_bikes(&s, 6));
+    }
+
+    #[test]
+    fn station_has_min_bikes_fails_when_realtime_missing() {
+        // Without real-time data we cannot confirm the minimum, so the
+        // predicate must reject (rather than silently passing). This matches
+        // the documented filter contract: a `min_bikes` query asks for a
+        // verified threshold, not an optimistic guess.
+        let mut s = make_station("a", 48.85, 2.35, 5, 5);
+        s.real_time = None;
+        assert!(!station_has_min_bikes(&s, 1));
+        // Even min=0 fails when we have no real-time row -- callers that don't
+        // care about counts simply omit the field.
+        assert!(!station_has_min_bikes(&s, 0));
+    }
+
+    // --- matches_availability_filter ---
+
+    #[test]
+    fn matches_availability_filter_no_filter_accepts_operational() {
+        let s = make_station("a", 48.85, 2.35, 1, 0);
+        assert!(matches_availability_filter(&s, None));
+    }
+
+    #[test]
+    fn matches_availability_filter_rejects_closed_station_even_with_no_filter() {
+        let mut closed = make_station("c", 48.85, 2.35, 5, 5);
+        if let Some(rt) = closed.real_time.as_mut() {
+            rt.status = StationStatus::Closed;
+        }
+        assert!(!matches_availability_filter(&closed, None));
+        // And also rejects with any filter set.
+        let filter = AvailabilityFilter {
+            min_bikes: Some(1),
+            ..Default::default()
+        };
+        assert!(!matches_availability_filter(&closed, Some(&filter)));
+    }
+
+    #[test]
+    fn matches_availability_filter_min_bikes_enforced() {
+        // Station with 3 total bikes (2 mech + 1 elec) must satisfy min=3 but
+        // not min=4. Previously these fields were silently ignored.
+        let s = make_station("a", 48.85, 2.35, 2, 1);
+        let pass = AvailabilityFilter {
+            min_bikes: Some(3),
+            ..Default::default()
+        };
+        let fail = AvailabilityFilter {
+            min_bikes: Some(4),
+            ..Default::default()
+        };
+        assert!(matches_availability_filter(&s, Some(&pass)));
+        assert!(!matches_availability_filter(&s, Some(&fail)));
+    }
+
+    #[test]
+    fn matches_availability_filter_min_docks_enforced() {
+        // make_station builds available_docks = 20 - bikes; with 2 bikes that
+        // leaves 18 docks. min=18 passes, min=19 fails.
+        let s = make_station("a", 48.85, 2.35, 2, 0);
+        let pass = AvailabilityFilter {
+            min_docks: Some(18),
+            ..Default::default()
+        };
+        let fail = AvailabilityFilter {
+            min_docks: Some(19),
+            ..Default::default()
+        };
+        assert!(matches_availability_filter(&s, Some(&pass)));
+        assert!(!matches_availability_filter(&s, Some(&fail)));
+    }
+
+    #[test]
+    fn matches_availability_filter_combines_subfilters_with_and() {
+        // bike_type=mechanical AND min_bikes=2: station with 2 mech passes;
+        // station with only 2 electric fails the bike_type check.
+        let mech = make_station("m", 48.85, 2.35, 2, 0);
+        let elec = make_station("e", 48.85, 2.35, 0, 2);
+        let filter = AvailabilityFilter {
+            min_bikes: Some(2),
+            bike_type: Some(BikeTypeFilter::MechanicalOnly),
+            ..Default::default()
+        };
+        assert!(matches_availability_filter(&mech, Some(&filter)));
+        assert!(!matches_availability_filter(&elec, Some(&filter)));
+    }
+
+    #[test]
+    fn matches_availability_filter_unset_subfilters_are_noops() {
+        // An empty filter behaves exactly like no filter: only the
+        // operational check applies.
+        let s = make_station("a", 48.85, 2.35, 0, 0); // 0 bikes is fine
+        let empty = AvailabilityFilter::default();
+        assert!(matches_availability_filter(&s, Some(&empty)));
     }
 }

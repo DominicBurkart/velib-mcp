@@ -2,6 +2,13 @@ use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Filters applied to `find_nearby_stations` results. All fields are optional;
+/// see `docs/api/mcp_interface_spec.md` for the documented JSON schema.
+///
+/// `exclude_out_of_service` is intentionally omitted: `find_nearby_stations`
+/// already requires `is_operational()`, so an opt-out flag would only let
+/// callers ask for non-operational stations -- a degenerate case the MCP spec
+/// does not advertise and no downstream tool exercises.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AvailabilityFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -10,8 +17,6 @@ pub struct AvailabilityFilter {
     pub min_docks: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bike_type: Option<BikeTypeFilter>,
-    #[serde(default = "default_true")]
-    pub exclude_out_of_service: bool,
 }
 
 fn default_true() -> bool {

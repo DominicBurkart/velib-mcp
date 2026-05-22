@@ -224,7 +224,14 @@ impl McpServer {
                                 "longitude": {"type": "number", "minimum": 2.0, "maximum": 2.6},
                                 "radius_meters": {"type": "integer", "minimum": 100, "maximum": 5000, "default": 500},
                                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
-                                "availability_filter": {"type": "object"}
+                                "availability_filter": {
+                                    "type": "object",
+                                    "properties": {
+                                        "min_bikes": {"type": "integer", "minimum": 0},
+                                        "min_docks": {"type": "integer", "minimum": 0},
+                                        "bike_type": {"type": "string", "enum": ["mechanical", "electric", "any"]}
+                                    }
+                                }
                             },
                             "required": ["latitude", "longitude"]
                         }
