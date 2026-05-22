@@ -20,14 +20,14 @@ couverture de tests unitaires et d'intégration automatisée.
 
 ## Interfaces livrées
 
-- Tools MCP : [`find_nearby_stations`](../../src/mcp/handlers.rs),
-  `get_station_by_code`, `search_stations_by_name`,
-  `get_area_statistics`, `plan_bike_journey`.
+- Tools MCP (implémentés dans `src/mcp/handlers.rs`) :
+  `find_nearby_stations`, `get_station_by_code`,
+  `search_stations_by_name`, `get_area_statistics`, `plan_bike_journey`.
 - Resources MCP : `velib://stations/reference`,
   `velib://stations/realtime`, `velib://stations/complete`,
   `velib://health`.
-- Transports : HTTP POST `/mcp` et WebSocket `/mcp/ws`
-  (voir [`src/mcp/server.rs`](../../src/mcp/server.rs)).
+- Transports (voir `src/mcp/server.rs`) : HTTP POST `/mcp` et WebSocket
+  `/mcp/ws`.
 
 ## Évolutions en cours
 

@@ -14,8 +14,8 @@ A high-performance Model Context Protocol (MCP) server providing access to Paris
 Install and use the Velib MCP server with Claude Code in one command:
 
 ```bash
-# Install and configure the server (port is read from the PORT env var; default 8080)
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
+# Install and configure the server (PORT env var overrides the default 8080)
+cargo install --git https://github.com/DominicBurkart/velib-mcp.git
 claude config add-server velib-mcp "PORT=3000 velib-mcp"
 ```
 
@@ -50,20 +50,18 @@ This project exposes two key Parisian datasets through MCP:
 <details>
 <summary>Click to expand integration guides</summary>
 
-### ChatGPT
+All integrations share the same install step:
+
 ```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server (defaults to 0.0.0.0:8080; set PORT/IP to override)
-velib-mcp
-# Configure in ChatGPT Custom Instructions or use via API
+cargo install --git https://github.com/DominicBurkart/velib-mcp.git
 ```
 
+The server binds `0.0.0.0:8080` by default; set `PORT`/`IP` env vars to override.
+
+### ChatGPT
+Run `velib-mcp` and configure via ChatGPT Custom Instructions or the API.
+
 ### Cursor
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-```
 Add to Cursor's `settings.json`:
 ```json
 {
@@ -77,19 +75,10 @@ Add to Cursor's `settings.json`:
 ```
 
 ### Le Chat / Mistral
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Run server and use via API calls (PORT/IP env vars configure the bind address)
-PORT=8080 velib-mcp
-```
+Run `PORT=8080 velib-mcp` and call via the API.
 
 ### Windsurf
-```bash
-# Install server
-cargo install --git https://github.com/dominicburkart/velib-mcp.git
-# Configure in Windsurf MCP settings
-```
+Configure `velib-mcp` in Windsurf MCP settings.
 
 </details>
 
@@ -104,7 +93,7 @@ cargo install --git https://github.com/dominicburkart/velib-mcp.git
 ### Setup
 
 ```bash
-git clone https://github.com/dominicburkart/velib-mcp.git
+git clone https://github.com/DominicBurkart/velib-mcp.git
 cd velib-mcp
 cargo build
 ```
