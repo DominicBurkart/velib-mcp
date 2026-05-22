@@ -216,11 +216,29 @@ impl VelibDataClient {
         self.realtime_cache.cleanup_expired().await;
     }
 
-    /// Get cache statistics
-    pub async fn cache_stats(&self) -> (usize, usize) {
+    /// Get cache statistics: entry counts for both caches and the combined hit rate.
+    ///
+    /// The hit rate is computed by pooling the raw `(hits, misses)` counters from
+    /// both caches before dividing, so the result equals `total_hits / total_lookups`
+    /// even when the two caches have unequal lookup counts. This happens in practice
+    /// because some code paths (e.g. `get_all_stations(false)` and
+    /// `test_connectivity`) query only the reference cache and skip the realtime one.
+    ///
+    /// Returns `0.0` when neither cache has been queried yet.
+    pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let reference_size = self.reference_cache.size().await;
         let realtime_size = self.realtime_cache.size().await;
-        (reference_size, realtime_size)
+
+        let (rh, rm) = self.reference_cache.stats();
+        let (th, tm) = self.realtime_cache.stats();
+        let total = rh.saturating_add(rm).saturating_add(th).saturating_add(tm);
+        let hit_rate = if total == 0 {
+            0.0
+        } else {
+            rh.saturating_add(th) as f64 / total as f64
+        };
+
+        (reference_size, realtime_size, hit_rate)
     }
 }
 

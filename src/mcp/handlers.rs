@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 
 const MAX_SEARCH_RADIUS: u32 = 5000; // 5km
 const MAX_RESULT_LIMIT: u16 = 100;
+const MAX_SEARCH_QUERY_LEN: usize = 100;
 
 /// Validate that a coordinate is within the Velib service area, returning the
 /// appropriate `Error` if not. Centralizes the two checks previously duplicated
@@ -262,8 +263,19 @@ impl McpToolHandler {
     ) -> Result<SearchStationsByNameOutput> {
         let start_time = Instant::now();
 
-        if input.query.len() < 2 {
-            return Err(Error::Internal(anyhow::anyhow!("Search query too short")));
+        // Count Unicode code points, not UTF-8 bytes, so that multi-byte
+        // characters (e.g. accented French letters like 'é', 'è', 'â') are
+        // measured the same way as the JSON Schema maxLength contract.
+        let char_count = input.query.chars().count();
+
+        if char_count < 2 {
+            return Err(Error::Validation("Search query too short".to_string()));
+        }
+
+        if char_count > MAX_SEARCH_QUERY_LEN {
+            return Err(Error::Validation(format!(
+                "Search query too long: {char_count} characters (max: {MAX_SEARCH_QUERY_LEN})"
+            )));
         }
 
         if input.limit > MAX_RESULT_LIMIT {
@@ -404,8 +416,10 @@ impl McpToolHandler {
         data_client.cleanup_cache().await;
     }
 
-    /// Get cache statistics from the data client
-    pub async fn cache_stats(&self) -> (usize, usize) {
+    /// Get cache statistics from the data client.
+    ///
+    /// Returns `(reference_cache_size, realtime_cache_size, hit_rate)`.
+    pub async fn cache_stats(&self) -> (usize, usize, f64) {
         let data_client = self.data_client.read().await;
         data_client.cache_stats().await
     }
@@ -751,6 +765,98 @@ mod tests {
         // availability for rental).
         assert_eq!(stats.operational_stations, 1);
         assert_eq!(stats.available_bikes.total, 7);
+    }
+
+    // --- search_stations_by_name: length validation (offline, no network) ---
+    //
+    // These tests call the actual handler method with queries that trigger the
+    // early-return length guards (before any network I/O), confirming that the
+    // guard in the handler itself — not just the underlying char-count math —
+    // rejects or accepts the input. The guards run before `get_all_stations`,
+    // so no network connection is required.
+
+    /// A 1-character query must be rejected with Error::Validation regardless
+    /// of byte width. Exercises the `char_count < 2` guard in the handler.
+    #[tokio::test]
+    async fn search_rejects_one_char_query() {
+        let handler = McpToolHandler::new();
+        let input = SearchStationsByNameInput {
+            query: "a".to_string(),
+            limit: 10,
+            fuzzy: true,
+        };
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                assert!(msg.contains("too short"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Err(Error::Validation), got {other:?}"),
+        }
+    }
+
+    /// A 101-character ASCII query (101 bytes) must be rejected with
+    /// Error::Validation. Exercises the `char_count > MAX_SEARCH_QUERY_LEN` guard.
+    #[tokio::test]
+    async fn search_rejects_101_char_query() {
+        let handler = McpToolHandler::new();
+        let input = SearchStationsByNameInput {
+            query: "a".repeat(101),
+            limit: 10,
+            fuzzy: true,
+        };
+        match handler.search_stations_by_name(input).await {
+            Err(Error::Validation(msg)) => {
+                assert!(msg.contains("too long"), "unexpected message: {msg}");
+            }
+            other => panic!("expected Err(Error::Validation), got {other:?}"),
+        }
+    }
+
+    /// 51 × 'é' = 51 chars, 102 bytes. Must NOT be rejected by the length guard
+    /// (51 <= 100 chars), even though the raw byte length (102) exceeds 100.
+    /// This is the canonical regression test for the byte-vs-char fix: if the
+    /// guard mistakenly used `.len()` instead of `.chars().count()`, this query
+    /// would be wrongly rejected before reaching the network.
+    ///
+    /// Because the query does pass validation, the handler proceeds to
+    /// `get_all_stations` which contacts the network. In the test environment
+    /// there is no live API, so we expect an `Err` from the HTTP layer — but
+    /// crucially NOT `Error::Validation`, which proves the length guard passed.
+    #[tokio::test]
+    async fn search_accepts_51_accented_chars_102_bytes() {
+        let handler = McpToolHandler::new();
+        let query: String = "é".repeat(51); // 51 chars, 102 UTF-8 bytes
+        assert_eq!(query.chars().count(), 51);
+        assert_eq!(query.len(), 102);
+        let input = SearchStationsByNameInput {
+            query,
+            limit: 10,
+            fuzzy: true,
+        };
+        // The length guard must not fire. Any error that does occur must not be
+        // a Validation error — it will be a network/IO error from the missing
+        // live API connection.
+        // Any other result (Ok or non-Validation Err) means the guard passed.
+        if let Err(Error::Validation(msg)) = handler.search_stations_by_name(input).await {
+            panic!("length guard wrongly fired for 51-char query: {msg}");
+        }
+    }
+
+    /// 50 × 'é' + 'x' = 51 chars, 101 bytes. Same contract as above: the char
+    /// guard must pass, and any error must not be Error::Validation.
+    #[tokio::test]
+    async fn search_accepts_50_accented_plus_1_ascii_51_chars_101_bytes() {
+        let handler = McpToolHandler::new();
+        let query: String = "é".repeat(50) + "x"; // 51 chars, 101 UTF-8 bytes
+        assert_eq!(query.chars().count(), 51);
+        assert_eq!(query.len(), 101);
+        let input = SearchStationsByNameInput {
+            query,
+            limit: 10,
+            fuzzy: true,
+        };
+        if let Err(Error::Validation(msg)) = handler.search_stations_by_name(input).await {
+            panic!("length guard wrongly fired for 51-char query: {msg}");
+        }
     }
 
     // --- journey_confidence_score ---
