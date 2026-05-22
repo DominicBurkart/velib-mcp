@@ -38,14 +38,7 @@ Créer un serveur cloud MCP performant pour rendre accessibles aux assistants IA
 
 ## État Actuel du Projet
 
-### Phases Terminées ✅
-- **Phase 0** : Configuration projet, CI/CD, structure documentation
-- **Phase 1** : Analyse complète des données Velib (15+ champs documentés)
-- **Phase 2A** : Configuration environnement et fondation serveur de base
-- **Phase 2B** : Fondation protocole MCP et types de base
-- **Phase 3A** : Intégration API live et client de données
-- **Phase 3B** : Handlers MCP complets avec intégration données live
-- **Phase 4** : Nettoyage structure repository (suppression worktrees committés)
+Pour le statut détaillé par phase, voir [`docs/context/etat_actuel.md`](docs/context/etat_actuel.md).
 
 ### Architecture Technique
 - **Serveur MCP Rust** pour données Velib Paris

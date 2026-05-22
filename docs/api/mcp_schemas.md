@@ -353,8 +353,8 @@ pub enum ValidationError {
       "installed": true
     },
     "status": "Operational",
-    "last_updated": "2025-06-14T19:31:22Z",
-    "valid_until": "2025-06-14T19:33:22Z"
+    "last_updated": "2026-04-23T19:31:22Z",
+    "valid_until": "2026-04-23T19:33:22Z"
   },
   "data_freshness": "Fresh"
 }
