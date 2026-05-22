@@ -1,4 +1,5 @@
 use crate::types::{BikeTypeFilter, Coordinates, VelibStation};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -15,6 +16,54 @@ pub struct AvailabilityFilter {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeographicQuery {
+    pub center: Coordinates,
+    pub radius_meters: u32,
+    #[serde(default = "default_limit")]
+    pub limit: u16,
+}
+
+fn default_limit() -> u16 {
+    50
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StationQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geographic: Option<GeographicQuery>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub availability: Option<AvailabilityFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub station_codes: Option<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub include_real_time: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginationInfo {
+    pub offset: usize,
+    pub limit: usize,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseMetadata {
+    pub response_time: DateTime<Utc>,
+    pub processing_time_ms: u64,
+    pub real_time_source: String,
+    pub reference_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StationListResponse {
+    pub stations: Vec<VelibStation>,
+    pub total_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<PaginationInfo>,
+    pub metadata: ResponseMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
