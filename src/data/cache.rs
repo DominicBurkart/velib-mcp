@@ -1,5 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -26,6 +27,8 @@ impl<T> CacheEntry<T> {
 pub struct InMemoryCache<K, V> {
     entries: Arc<RwLock<HashMap<K, CacheEntry<V>>>>,
     default_ttl: Duration,
+    hits: Arc<AtomicU64>,
+    misses: Arc<AtomicU64>,
 }
 
 impl<K, V> InMemoryCache<K, V>
@@ -38,6 +41,8 @@ where
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
             default_ttl,
+            hits: Arc::new(AtomicU64::new(0)),
+            misses: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -45,10 +50,48 @@ where
         let entries = self.entries.read().await;
         if let Some(entry) = entries.get(key) {
             if !entry.is_expired() {
+                self.hits.fetch_add(1, Ordering::Relaxed);
                 return Some(entry.data.clone());
             }
         }
+        self.misses.fetch_add(1, Ordering::Relaxed);
         None
+    }
+
+    /// Returns the raw `(hits, misses)` counters accumulated since the cache
+    /// was created. Use these to pool counts across multiple caches before
+    /// computing a combined rate, or to inspect the raw numbers directly.
+    ///
+    /// An expired-key lookup (key present but TTL elapsed) increments
+    /// `misses`, not `hits`.
+    #[must_use]
+    pub fn stats(&self) -> (u64, u64) {
+        (
+            self.hits.load(Ordering::Relaxed),
+            self.misses.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Returns the cache hit rate as a value in [0.0, 1.0].
+    /// Returns 0.0 when no lookups have been performed yet.
+    ///
+    /// **Stale-entry behaviour**: when a key is present but its TTL has
+    /// elapsed, `get` counts the lookup as a *miss*. In a single-key-per-cache
+    /// setup (e.g. `"all_reference_stations"`), this produces exactly one
+    /// stale-key miss per TTL boundary before the entry is refreshed, which
+    /// slightly depresses the reported rate. Callers that need a rate
+    /// unaffected by this should use the raw `stats()` counters and apply
+    /// their own denominator policy.
+    #[must_use]
+    pub fn hit_rate(&self) -> f64 {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let total = hits.saturating_add(misses);
+        if total == 0 {
+            0.0
+        } else {
+            hits as f64 / total as f64
+        }
     }
 
     pub async fn insert(&self, key: K, value: V) {
@@ -220,5 +263,81 @@ mod tests {
         assert_eq!(cache.get(&42).await, Some("hello".to_string()));
         assert_eq!(cache.get(&99).await, Some("world".to_string()));
         assert_eq!(cache.get(&0).await, None);
+    }
+
+    // --- hit_rate and stats ---
+
+    #[tokio::test]
+    async fn hit_rate_fresh_cache() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        assert_eq!(cache.hit_rate(), 0.0);
+        assert_eq!(cache.stats(), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn hit_rate_one_hit() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await;
+        assert_eq!(cache.hit_rate(), 1.0);
+        assert_eq!(cache.stats(), (1, 0));
+    }
+
+    #[tokio::test]
+    async fn hit_rate_one_hit_one_miss() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await; // hit
+        cache.get(&"missing".to_string()).await; // miss
+        assert!((cache.hit_rate() - 0.5).abs() < 1e-9);
+        assert_eq!(cache.stats(), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn hit_rate_zero_when_no_lookups() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[tokio::test]
+    async fn hit_rate_one_after_only_hits() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await;
+        cache.get(&"k".to_string()).await;
+        assert_eq!(cache.hit_rate(), 1.0);
+    }
+
+    #[tokio::test]
+    async fn hit_rate_zero_after_only_misses() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.get(&"missing".to_string()).await;
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[tokio::test]
+    async fn hit_rate_half_after_equal_hits_and_misses() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        cache.insert("k".to_string(), 1).await;
+        cache.get(&"k".to_string()).await; // hit
+        cache.get(&"missing".to_string()).await; // miss
+        assert!((cache.hit_rate() - 0.5).abs() < 1e-9);
+    }
+
+    /// An expired-key lookup (key present but TTL elapsed) must be counted as a
+    /// miss, not a hit. This locks in the documented behaviour so future
+    /// refactors cannot silently change the semantics.
+    #[tokio::test]
+    async fn expired_entry_counts_as_miss() {
+        let cache: InMemoryCache<String, i32> = InMemoryCache::new(Duration::seconds(60));
+        // Insert with a TTL that is already in the past.
+        cache
+            .insert_with_ttl("k".to_string(), 1, Duration::milliseconds(-1))
+            .await;
+        let result = cache.get(&"k".to_string()).await;
+        assert_eq!(result, None);
+        // The stale lookup must be recorded as a miss, not a hit.
+        assert_eq!(cache.stats(), (0, 1));
+        assert_eq!(cache.hit_rate(), 0.0);
     }
 }
