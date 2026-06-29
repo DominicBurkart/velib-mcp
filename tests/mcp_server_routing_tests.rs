@@ -69,7 +69,7 @@ async fn get_resource(uri: &str) -> (StatusCode, Value) {
 }
 
 #[tokio::test]
-async fn tools_list_returns_all_five_tools() {
+async fn tools_list_returns_all_registered_tools() {
     let (status, body) = post_mcp(json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -88,7 +88,101 @@ async fn tools_list_returns_all_five_tools() {
     assert!(names.contains(&"search_stations_by_name"));
     assert!(names.contains(&"get_area_statistics"));
     assert!(names.contains(&"plan_bike_journey"));
-    assert_eq!(tools.len(), 5);
+    assert!(names.contains(&"get_api_documentation"));
+    assert_eq!(tools.len(), velib_mcp::mcp::TOOL_NAMES.len());
+}
+
+/// Issue #9: parity check between the documentation source-of-truth
+/// (`mcp::documentation::TOOL_NAMES`) and the wire `tools/list` advertised
+/// by the server. Adding a tool to one without the other will fail here.
+#[tokio::test]
+async fn tools_list_matches_documentation_tool_names() {
+    let (_, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .await;
+    let mut advertised: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    advertised.sort_unstable();
+    let mut documented: Vec<&str> = velib_mcp::mcp::TOOL_NAMES.to_vec();
+    documented.sort_unstable();
+    assert_eq!(
+        advertised, documented,
+        "tools/list and documentation::TOOL_NAMES disagree"
+    );
+}
+
+/// Integration test: invoke the new `get_api_documentation` tool through
+/// the standard `tools/call` transport, in both JSON and Markdown formats.
+#[tokio::test]
+async fn get_api_documentation_tool_returns_json_by_default() {
+    let (status, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "get_api_documentation",
+            "arguments": {}
+        }
+    }))
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_null(), "unexpected error: {body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let parsed: Value = serde_json::from_str(text).expect("response text is valid JSON");
+    assert_eq!(parsed["format"], "json");
+    let doc = &parsed["documentation"];
+    assert!(doc.is_object(), "documentation should be an object");
+    // The parity guarantee, end-to-end: every advertised tool is documented.
+    let tool_names: Vec<&str> = doc["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    for name in velib_mcp::mcp::TOOL_NAMES {
+        assert!(
+            tool_names.contains(name),
+            "documentation missing tool {name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn get_api_documentation_tool_returns_markdown_when_requested() {
+    let (status, body) = post_mcp(json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "get_api_documentation",
+            "arguments": { "format": "markdown" }
+        }
+    }))
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["error"].is_null(), "unexpected error: {body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    let parsed: Value = serde_json::from_str(text).expect("response text is valid JSON");
+    assert_eq!(parsed["format"], "markdown");
+    let md = parsed["documentation"]
+        .as_str()
+        .expect("markdown payload is a string");
+    assert!(md.starts_with("# Velib MCP"));
+    assert!(md.contains("get_api_documentation"));
 }
 
 #[tokio::test]
