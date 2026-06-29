@@ -14,6 +14,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+use super::documentation;
 use super::handlers::McpToolHandler;
 use super::types::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::{Error, Result};
@@ -301,6 +302,22 @@ impl McpServer {
                             },
                             "required": ["origin", "destination"]
                         }
+                    },
+                    {
+                        "name": "get_api_documentation",
+                        "description": "Return the self-documentation of this MCP server: every tool's purpose, full input/output schema, units, enum definitions, data-freshness/caching semantics, and an example response. Call once at the start of a session to ground your understanding.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "format": {
+                                    "type": "string",
+                                    "enum": ["json", "markdown"],
+                                    "default": "json",
+                                    "description": "Output format. JSON returns the structured schema; markdown returns a human-friendly prose rendering of the same content."
+                                }
+                            },
+                            "required": []
+                        }
                     }
                 ]
             })),
@@ -335,6 +352,16 @@ impl McpServer {
                     }
                     "plan_bike_journey" => {
                         tool_text_content(arguments, |input| handler.plan_bike_journey(input)).await
+                    }
+                    "get_api_documentation" => {
+                        // The documentation tool is synchronous and infallible
+                        // (it consults a hardcoded source of truth), but we
+                        // route it through the same text-content envelope so
+                        // MCP clients see a uniform response shape.
+                        tool_text_content(arguments, |input| async move {
+                            Ok(documentation::run(input))
+                        })
+                        .await
                     }
                     _ => Err(Error::McpProtocol(format!("Unknown tool: {tool_name}"))),
                 }
