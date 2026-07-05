@@ -16,15 +16,6 @@ feature-depth = 1
 # Advisory database configuration
 [advisories]
 ignore = [
-    # RUSTSEC-2026-0097 (rand thread_rng predictability): rand 0.8.5 is a
-    # transitive dep via tungstenite -> tokio-tungstenite -> axum. Verified
-    # no direct security-sensitive use in this crate via
-    #   rg -n 'thread_rng|rand::' src/
-    # which returns only src/data/retry.rs:117 using fastrand::f64() for
-    # retry-jitter (non-security). Re-run that grep on each audit to
-    # confirm no production path starts using rand::thread_rng() for
-    # tokens/IDs/nonces/crypto material.
-    { id = "RUSTSEC-2026-0097", reason = "transitive rand 0.8.5 via axum; src/ uses fastrand only, no thread_rng for security-sensitive values (re-verify via `rg -n 'thread_rng|rand::' src/`)" },
     # RUSTSEC-2025-0134 (rustls-pemfile unmaintained): dev-only transitive
     # dep via reqwest's test-support path; not compiled into production.
     { id = "RUSTSEC-2025-0134", reason = "dev-only transitive dep via reqwest; no production exposure" },
