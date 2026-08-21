@@ -1,0 +1,29 @@
+# cron-esqjyp fingerprint (velib-mcp slice)
+
+**Job**: `esqjyp` (LIFO oldest-15 tick)
+**Prior tick in this repo**: `l2v02o` (PR #244)
+**Semantic delta since prior tick**: none — byte-identical no-op.
+
+## Slice this repo contributes to the global oldest-15
+
+`#9` (MCP documentation endpoint, 2025-06-18).
+
+The global oldest-15 remains: one_track#6/#7, velib-mcp#9, nanna-coder#5/#10/#20/#23/#24/#39, marigold#68, nanna-coder#60/#61/#62/#63, marigold#85.
+
+## Disposition
+
+| Issue | Owner PR | Status | Action this tick |
+|-------|----------|--------|------------------|
+| #9 MCP documentation endpoint | PR #213 | in-flight (draft, `mergeable_state: blocked`) | defer |
+
+## Why no new work spawns this tick
+
+Prior artifacts unchanged since `l2v02o`:
+- `#9 → PR #213` mapping identical
+- `PR #213 → last-commit-sha` identical (`a5f91b6…`)
+
+Fingerprint rule: same trigger → same no-op on re-run. Planner jobs never promote (`ready-for-review` lives on PR #213 for a human).
+
+## For the janitor
+
+Duplicates of this fingerprint (the run of `chore(cron-*): fingerprint disposition for #9 …` PRs from `2gn8t0` through `l2v02o`, PR #214 through #244) can be closed on sight — they all encode the same disposition.
